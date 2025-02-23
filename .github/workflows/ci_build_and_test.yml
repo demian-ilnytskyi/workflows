@@ -76,10 +76,13 @@ jobs:
         - name: Define Flutter Versions
           id: flutter-versions
           run: |
-            if [ -n "${MIN_FLUTTER_FRAMEWORK_VERSION}" ]; then
-              VERSIONS="[\"${FLUTTER_FRAMEWORK_VERSION}\", \"${MIN_FLUTTER_FRAMEWORK_VERSION}\"]"
-            elif [ -n "${FLUTTER_FRAMEWORK_VERSION}" ]; then
-              VERSIONS="[\"${FLUTTER_FRAMEWORK_VERSION}\"]"
+            VERSION="${vars.FLUTTER_FRAMEWORK_VERSION}"
+            IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
+
+            if [[ ${#VERSION_ARRAY[@]} -ge 2 ]]; then
+              VERSIONS="[\"${VERSION_ARRAY[0]}\", \"${VERSION_ARRAY[1]}\"]"
+            elif [[ ${#VERSION_ARRAY[@]} -eq 1 ]]; then
+              VERSIONS="[\"${VERSION_ARRAY[0]}\"]"
             else
               VERSIONS="[]"
             fi
