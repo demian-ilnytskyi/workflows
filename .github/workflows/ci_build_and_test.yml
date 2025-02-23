@@ -76,7 +76,7 @@ jobs:
         - name: Define Flutter Versions
           id: flutter-versions
           run: |
-            VERSION="${{ inputs.flutter_versions != '' ? inputs.flutter_framework_version : vars.FLUTTER_FRAMEWORK_VERSION }}"
+            VERSION="${{ if(ne(inputs.flutter_versions, ''), inputs.flutter_framework_version, vars.FLUTTER_FRAMEWORK_VERSION) }}"
             IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
 
             VERSION="${{ env.flutter_version }}"
