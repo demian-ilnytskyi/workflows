@@ -87,7 +87,7 @@ jobs:
         run: flutter pub get
       - name: 📦 Build Dependecies
         if: ${{inputs.run_build}}
-      - run: flutter pub run build_runner build --delete-conflicting-outputs
+        run: flutter pub run build_runner build --delete-conflicting-outputs
       - name: Init Very Good CLI
       - run: |
           flutter pub global activate very_good_cli
