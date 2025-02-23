@@ -90,6 +90,9 @@ jobs:
     runs-on: ${{inputs.runs_on}}
     needs: define-flutter-versions
     timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{inputs.working_directory}}
     strategy:
       matrix:
         flutter_versions: ${{ fromJSON(needs.define-flutter-versions.outputs.flutter-versions) }}

@@ -82,6 +82,9 @@ jobs:
     defaults:
       run:
         working-directory: ${{inputs.working_directory}}
+    strategy:
+      matrix:
+        flutter_versions: ${{ fromJSON(needs.define-flutter-versions.outputs.flutter-versions) }}
     runs-on: ${{inputs.runs_on}}
     steps:
       - uses: actions/checkout@v4.1.1
