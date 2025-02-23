@@ -1,0 +1,114 @@
+name: CI - Build and Test
+
+on:
+  workflow_call:
+    inputs:
+      analyze_directories:
+        required: false
+        type: string
+        default: "lib test"
+      concurrency:
+        required: false
+        type: number
+        default: 4
+      coverage_excludes:
+        required: false
+        type: string
+        default: ""
+      flutter_channel:
+        required: false
+        type: string
+        default: "stable"
+      format_directories:
+        required: false
+        type: string
+        default: "lib test"
+      format_exclude:
+        required: false
+        type: string
+        default: ""
+      format_line_length:
+        required: false
+        type: string
+        default: "80"
+      min_coverage:
+        required: false
+        type: number
+        default: 100
+      runs_on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      test_optimization:
+        required: false
+        type: boolean
+        default: true
+      test_recursion:
+        required: false
+        type: boolean
+        default: false
+      working_directory:
+        required: false
+        type: string
+        default: "."
+      package_get_excludes:
+        required: false
+        type: string
+        default: "!*"
+      run_build:
+        required: false
+        type: boolean
+        default: false
+env:
+  GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: write # This is required for actions/checkout 
+
+jobs:
+  build:
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{inputs.working_directory}}
+    runs-on: ${{inputs.runs_on}}
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - uses: subosito/flutter-action@v2.12.0
+        with:
+          channel: ${{inputs.flutter_channel}}
+          cache: true
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:" # optional, change this to force refresh cache
+          cache-path: "${{ runner.tool_cache }}/flutter/:channel:-:version:-:arch:" # optional, change this to specify the cache path
+          architecture: x64 # optional, x64 or arm64
+          flutter-version: ${{ vars.FLUTTER_FRAMEWORK_VERSION }}
+
+      - name: 📦 Install Dependencies
+        run: flutter pub get
+      - name: 📦 Build Dependecies
+        if: ${{inputs.run_build}}
+      - run: flutter pub run build_runner build --delete-conflicting-outputs
+      - name: Init Very Good CLI
+      - run: |
+          flutter pub global activate very_good_cli
+          very_good packages get --recursive --ignore=${{inputs.package_get_excludes}}
+      - name: ✨ Check Formatting
+        run: |
+          exclude_patterns="${{ inputs.format_exclude }}"
+          find_cmd="find lib test -name '*.dart'"
+          for pattern in $exclude_patterns; do
+            find_cmd+=" ! -path '$pattern'"
+          done
+          eval "$find_cmd" | xargs dart format --line-length 80 --set-exit-if-changed
+      - name: 🕵️ Analyze
+        run: flutter analyze ${{inputs.analyze_directories}}
+
+      - name: 🧪 Run Tests
+        run: very_good test -j ${{inputs.concurrency}} ${{(inputs.test_recursion && '--recursive') || ''}} ${{(inputs.test_optimization && '--optimization') || '--no-optimization'}} --coverage --test-randomize-ordering-seed random
+
+      - name: 📊 Check Code Coverage
+        uses: VeryGoodOpenSource/very_good_coverage@v3
+        with:
+          path: ${{inputs.working_directory}}/coverage/lcov.info
+          exclude: ${{inputs.coverage_excludes}}
+          min_coverage: ${{inputs.min_coverage}}
