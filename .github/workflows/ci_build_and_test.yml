@@ -71,10 +71,8 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        flutter_version: ${{ fromJson(vars.MIN_FLUTTER_FRAMEWORK_VERSION == '' ? '["' + vars.FLUTTER_FRAMEWORK_VERSION + '"]' : '["' + vars.FLUTTER_FRAMEWORK_VERSION + '", "' + vars.MIN_FLUTTER_FRAMEWORK_VERSION + '"]') }}
-    defaults:
-      run:
-        working-directory: ${{ inputs.working_directory }}
+        flutter_version: [vars.FLUTTER_FRAMEWORK_VERSION]
+        # flutter_version: ${{ fromJson(vars.MIN_FLUTTER_FRAMEWORK_VERSION == '' ? '["' + vars.FLUTTER_FRAMEWORK_VERSION + '"]' : '["' + vars.FLUTTER_FRAMEWORK_VERSION + '", "' + vars.MIN_FLUTTER_FRAMEWORK_VERSION + '"]') }}
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4.1.1
