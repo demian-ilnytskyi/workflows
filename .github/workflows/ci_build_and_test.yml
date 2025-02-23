@@ -128,7 +128,7 @@ jobs:
           eval "$find_cmd" | xargs dart format --line-length ${{ inputs.format_line_length }} --set-exit-if-changed
 
       - name: 🕵️ Analyze
-        run: flutter analyze ${{ inputs.analyze_directories }} --exclude example/*
+        run: flutter analyze ${{ inputs.analyze_directories }}
 
       - name: 🧪 Run Tests
         run: |
