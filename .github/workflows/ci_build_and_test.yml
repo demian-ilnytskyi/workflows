@@ -27,10 +27,6 @@ on:
         required: false
         type: string
         default: ""
-      install_dependencies_exclude:
-        required: false
-        type: string
-        default: ""
       format_line_length:
         required: false
         type: string
@@ -112,8 +108,7 @@ jobs:
           architecture: x64
 
       - name: 📦 Install Dependencies
-        run: |
-          find . -name pubspec.yaml -not -path "${{ inputs.install_dependencies_exclude }}" -execdir flutter pub get \;
+        run: flutter pub get
 
       - name: 🚀 Install Very Good CLI
         run: flutter pub global activate very_good_cli
