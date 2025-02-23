@@ -66,16 +66,16 @@ permissions:
   contents: write # This is required for actions/checkout 
 
 jobs:
-  strategy:
-    matrix:
-      flutter_version: ${{ fromJson(
-        vars.MIN_FLUTTER_FRAMEWORK_VERSION == '' 
-          ? '["' + vars.FLUTTER_FRAMEWORK_VERSION + '"]' 
-          : '["' + vars.FLUTTER_FRAMEWORK_VERSION + '", "' + vars.MIN_FLUTTER_FRAMEWORK_VERSION + '"]'
-        ) }}
   build:
     runs-on: ${{inputs.runs_on}}
     timeout-minutes: 30
+    strategy:
+      matrix:
+        flutter_version: ${{ fromJson(
+          vars.MIN_FLUTTER_FRAMEWORK_VERSION == '' 
+            ? '["' + vars.FLUTTER_FRAMEWORK_VERSION + '"]' 
+            : '["' + vars.FLUTTER_FRAMEWORK_VERSION + '", "' + vars.MIN_FLUTTER_FRAMEWORK_VERSION + '"]'
+        ) }}
     defaults:
       run:
         working-directory: ${{ inputs.working_directory }}
