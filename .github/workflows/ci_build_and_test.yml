@@ -75,8 +75,10 @@ jobs:
       steps:
         - name: Define Flutter Versions
           id: flutter-versions
+          env:
+            flutter_version: ${{ inputs.flutter_versions || vars.FLUTTER_FRAMEWORK_VERSION }}
           run: |
-            VERSION="${{ inputs.flutter_versions || vars.FLUTTER_FRAMEWORK_VERSION }}"
+            VERSION="${{env.flutter_version}}"
             IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
 
             VERSION="${{ env.flutter_version }}"
