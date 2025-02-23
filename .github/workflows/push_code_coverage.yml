@@ -130,4 +130,5 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{inputs.working_directory}}/coverage/lcov.info
           fail_ci_if_error: true
+          name: flutter-version-${{ matrix.flutter_version }}
           verbose: true
