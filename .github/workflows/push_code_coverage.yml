@@ -76,8 +76,6 @@ jobs:
             echo "flutter-versions=$VERSIONS" >> "$GITHUB_OUTPUT"
   push_code_coverage:
     timeout-minutes: 30
-    outputs:
-       COVERAGE: ${{ steps.save-code-coverage.outputs.COVERAGE }}
     defaults:
       run:
         working-directory: ${{inputs.working_directory}}
