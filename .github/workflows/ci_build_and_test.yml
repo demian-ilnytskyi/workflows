@@ -113,7 +113,7 @@ jobs:
 
       - name: 📦 Install Dependencies
         run: |
-          find . -name pubspec.yaml -not -path "${{ install_dependencies_exclude }}" -execdir flutter pub get \;
+          find . -name pubspec.yaml -not -path "${{ inputs.install_dependencies_exclude }}" -execdir flutter pub get \;
 
       - name: 🚀 Install Very Good CLI
         run: flutter pub global activate very_good_cli
