@@ -68,30 +68,44 @@ permissions:
 jobs:
   build:
     timeout-minutes: 30
+    strategy:
+      matrix:
+        flutter_version: ${{ fromJson(
+          vars.MIN_FLUTTER_FRAMEWORK_VERSION == '' 
+            ? '["' + vars.FLUTTER_FRAMEWORK_VERSION + '"]' 
+            : '["' + vars.FLUTTER_FRAMEWORK_VERSION + '", "' + vars.MIN_FLUTTER_FRAMEWORK_VERSION + '"]'
+        ) }}
+    runs-on: ${{ inputs.runs_on }}
     defaults:
       run:
-        working-directory: ${{inputs.working_directory}}
+        working-directory: ${{ inputs.working_directory }}
     runs-on: ${{inputs.runs_on}}
     steps:
-      - uses: actions/checkout@v4.1.1
-      - uses: subosito/flutter-action@v2.12.0
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4.1.1
+
+      - name: 🎯 Setup Flutter (Version: ${{ matrix.flutter_version }})
+        uses: subosito/flutter-action@v2.12.0
         with:
-          channel: ${{inputs.flutter_channel}}
+          flutter-version: ${{ matrix.flutter_version }}
+          channel: ${{ inputs.flutter_channel }}
           cache: true
-          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:" # optional, change this to force refresh cache
-          cache-path: "${{ runner.tool_cache }}/flutter/:channel:-:version:-:arch:" # optional, change this to specify the cache path
-          architecture: x64 # optional, x64 or arm64
-          flutter-version: ${{ vars.FLUTTER_FRAMEWORK_VERSION }}
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:"
+          cache-path: "${{ runner.tool_cache }}/flutter/:channel:-:version:-:arch:"
+          architecture: x64
 
       - name: 📦 Install Dependencies
         run: flutter pub get
-      - name: 📦 Build Dependecies
-        if: ${{inputs.run_build}}
+
+      - name: 🏗️ Build Dependencies
+        if: ${{ inputs.run_build }}
         run: flutter pub run build_runner build --delete-conflicting-outputs
-      - name: Install Very Good CLI
+
+      - name: 🚀 Install Very Good CLI
         run: |
           flutter pub global activate very_good_cli
-          very_good packages get --recursive --ignore=${{inputs.package_get_excludes}}
+          very_good packages get --recursive --ignore=${{ inputs.package_get_excludes }}
+
       - name: ✨ Check Formatting
         run: |
           exclude_patterns="${{ inputs.format_exclude }}"
@@ -99,16 +113,20 @@ jobs:
           for pattern in $exclude_patterns; do
             find_cmd+=" ! -path '$pattern'"
           done
-          eval "$find_cmd" | xargs dart format --line-length 80 --set-exit-if-changed
+          eval "$find_cmd" | xargs dart format --line-length ${{ inputs.format_line_length }} --set-exit-if-changed
+
       - name: 🕵️ Analyze
-        run: flutter analyze ${{inputs.analyze_directories}}
+        run: flutter analyze ${{ inputs.analyze_directories }}
 
       - name: 🧪 Run Tests
-        run: very_good test -j ${{inputs.concurrency}} ${{(inputs.test_recursion && '--recursive') || ''}} ${{(inputs.test_optimization && '--optimization') || '--no-optimization'}} --coverage --test-randomize-ordering-seed random
+        run: very_good test -j ${{ inputs.concurrency }} \
+             ${{ inputs.test_recursion && '--recursive' || '' }} \
+             ${{ inputs.test_optimization && '--optimization' || '--no-optimization' }} \
+             --coverage --test-randomize-ordering-seed random
 
       - name: 📊 Check Code Coverage
         uses: VeryGoodOpenSource/very_good_coverage@v3
         with:
-          path: ${{inputs.working_directory}}/coverage/lcov.info
-          exclude: ${{inputs.coverage_excludes}}
-          min_coverage: ${{inputs.min_coverage}}
+          path: ${{ inputs.working_directory }}/coverage/lcov.info
+          exclude: ${{ inputs.coverage_excludes }}
+          min_coverage: ${{ inputs.min_coverage }}
