@@ -76,7 +76,6 @@ jobs:
             ? '["' + vars.FLUTTER_FRAMEWORK_VERSION + '"]' 
             : '["' + vars.FLUTTER_FRAMEWORK_VERSION + '", "' + vars.MIN_FLUTTER_FRAMEWORK_VERSION + '"]'
         ) }}
-    runs-on: ${{ inputs.runs_on }}
     defaults:
       run:
         working-directory: ${{ inputs.working_directory }}
