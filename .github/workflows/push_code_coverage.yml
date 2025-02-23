@@ -1,36 +1,25 @@
-name: CI - Build and Test
+name: Push Code Coverage
+
+env:
+  GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: write # This is required for actions/checkout 
 
 on:
   workflow_call:
     inputs:
-      analyze_directories:
-        required: false
-        type: string
-        default: "lib test"
       concurrency:
         required: false
         type: number
         default: 4
       coverage_excludes:
-        required: false
+        required: true
         type: string
-        default: ""
       flutter_channel:
         required: false
         type: string
         default: "stable"
-      format_directories:
-        required: false
-        type: string
-        default: "lib test"
-      format_exclude:
-        required: false
-        type: string
-        default: ""
-      format_line_length:
-        required: false
-        type: string
-        default: "80"
       min_coverage:
         required: false
         type: number
@@ -59,15 +48,13 @@ on:
         required: false
         type: boolean
         default: false
-env:
-  GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
-permissions:
-  id-token: write # This is required for requesting the JWT
-  contents: write # This is required for actions/checkout 
 
 jobs:
-  build:
+  push_code_coverage:
     timeout-minutes: 30
+    outputs:
+       COVERAGE: ${{ steps.save-code-coverage.outputs.COVERAGE }}
+    environment: "production"
     defaults:
       run:
         working-directory: ${{inputs.working_directory}}
@@ -88,23 +75,22 @@ jobs:
       - name: 📦 Build Dependecies
         if: ${{inputs.run_build}}
         run: flutter pub run build_runner build --delete-conflicting-outputs
-      - name: Install Very Good CLI
+      - name: Install Lcov
+        if: ${{inputs.coverage_excludes}}
         run: |
           flutter pub global activate very_good_cli
           very_good packages get --recursive --ignore=${{inputs.package_get_excludes}}
-      - name: ✨ Check Formatting
+      - name: Init Very Good CLI
         run: |
-          exclude_patterns="${{ inputs.format_exclude }}"
-          find_cmd="find lib test -name '*.dart'"
-          for pattern in $exclude_patterns; do
-            find_cmd+=" ! -path '$pattern'"
-          done
-          eval "$find_cmd" | xargs dart format --line-length 80 --set-exit-if-changed
-      - name: 🕵️ Analyze
-        run: flutter analyze ${{inputs.analyze_directories}}
+          sudo apt-get update
+          sudo apt-get install -y lcov
 
       - name: 🧪 Run Tests
         run: very_good test -j ${{inputs.concurrency}} ${{(inputs.test_recursion && '--recursive') || ''}} ${{(inputs.test_optimization && '--optimization') || '--no-optimization'}} --coverage --test-randomize-ordering-seed random
+
+      - name: Exclude coverage
+        if: ${{inputs.coverage_excludes}}
+        run: lcov --remove coverage/lcov.info ${{inputs.coverage_excludes}} --output-file coverage/lcov.info --ignore-errors unused
 
       - name: 📊 Check Code Coverage
         uses: VeryGoodOpenSource/very_good_coverage@v3
@@ -112,3 +98,11 @@ jobs:
           path: ${{inputs.working_directory}}/coverage/lcov.info
           exclude: ${{inputs.coverage_excludes}}
           min_coverage: ${{inputs.min_coverage}}
+          
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{inputs.working_directory}}/coverage/lcov.info
+          fail_ci_if_error: true
+          verbose: true
