@@ -78,7 +78,6 @@ jobs:
     timeout-minutes: 30
     outputs:
        COVERAGE: ${{ steps.save-code-coverage.outputs.COVERAGE }}
-    environment: "production"
     defaults:
       run:
         working-directory: ${{inputs.working_directory}}
