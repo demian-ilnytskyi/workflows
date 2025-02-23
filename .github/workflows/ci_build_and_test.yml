@@ -67,6 +67,7 @@ permissions:
 
 jobs:
   build:
+    runs-on: ${{inputs.runs_on}}
     timeout-minutes: 30
     strategy:
       matrix:
@@ -79,7 +80,6 @@ jobs:
     defaults:
       run:
         working-directory: ${{ inputs.working_directory }}
-    runs-on: ${{inputs.runs_on}}
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4.1.1
