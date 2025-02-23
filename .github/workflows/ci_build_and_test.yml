@@ -77,7 +77,7 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4.1.1
 
-      - name: 🎯 Setup Flutter (Version: ${{ matrix.flutter_version }})
+      - name: 🎯 Setup Flutter (Version - ${{ matrix.flutter_version }})
         uses: subosito/flutter-action@v2.12.0
         with:
           flutter-version: ${{ matrix.flutter_version }}
