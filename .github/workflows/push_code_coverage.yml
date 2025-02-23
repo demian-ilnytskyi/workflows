@@ -48,10 +48,6 @@ on:
         required: false
         type: boolean
         default: false
-      flutter_versions:
-        required: false
-        type: string
-        default: ""
 
 jobs:
   define-flutter-versions:
@@ -64,7 +60,7 @@ jobs:
         - name: Define Flutter Versions
           id: flutter-versions
           env:
-            flutter_version: ${{ inputs.flutter_versions || vars.FLUTTER_FRAMEWORK_VERSION }}
+            flutter_version: ${{ vars.FLUTTER_FRAMEWORK_VERSION }}
           run: |
             VERSION="${{env.flutter_version}}"
             IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
@@ -117,7 +113,12 @@ jobs:
           sudo apt-get install -y lcov
 
       - name: 🧪 Run Tests
-        run: very_good test -j ${{inputs.concurrency}} ${{(inputs.test_recursion && '--recursive') || ''}} ${{(inputs.test_optimization && '--optimization') || '--no-optimization'}} --coverage --test-randomize-ordering-seed random
+        run: |
+          if [[ "$(echo ${{ matrix.flutter_versions }} | cut -d'.' -f1-2)" < "3.16" ]]; then
+            flutter test --coverage --test-randomize-ordering-seed random
+          else
+            very_good test -j ${{inputs.concurrency}} ${{(inputs.test_recursion && '--recursive') || ''}} ${{(inputs.test_optimization && '--optimization') || '--no-optimization'}} --coverage --test-randomize-ordering-seed random
+          fi
 
       - name: Exclude coverage
         if: ${{inputs.coverage_excludes}}
