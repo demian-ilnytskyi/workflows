@@ -109,7 +109,7 @@ jobs:
       - name: 🚀 Install Very Good CLI
         run: |
           flutter pub global activate very_good_cli
-          very_good packages get --recursive --ignore=${{inputs.package_get_excludes}}
+          very_good packages get --ignore=${{inputs.package_get_excludes}}
       - name: Install Lcov
         if: ${{inputs.coverage_excludes}}
         run: |
