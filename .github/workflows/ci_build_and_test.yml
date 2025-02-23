@@ -120,7 +120,7 @@ jobs:
 
       - name: ✨ Check Formatting
         run: |
-          exclude_patterns="${{ inputs.format_exclude }}
+          exclude_patterns="${{ inputs.format_exclude }}"
           find_cmd="find lib test -name '*.dart'"
           for pattern in $exclude_patterns; do
             find_cmd+=" ! -path '$pattern'"
