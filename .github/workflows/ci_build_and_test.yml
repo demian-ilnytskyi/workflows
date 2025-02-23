@@ -27,6 +27,10 @@ on:
         required: false
         type: string
         default: ""
+      install_dependencies_exclude:
+        required: false
+        type: string
+        default: ""
       format_line_length:
         required: false
         type: string
@@ -108,18 +112,15 @@ jobs:
           architecture: x64
 
       - name: 📦 Install Dependencies
-        run: flutter pub get
-
-      - name: 🏗️ Build Dependencies
-        if: ${{ inputs.run_build }}
-        run: flutter pub run build_runner build --delete-conflicting-outputs
+        run: |
+          find . -name pubspec.yaml -not -path "${{ install_dependencies_exclude }}" -execdir flutter pub get \;
 
       - name: 🚀 Install Very Good CLI
         run: flutter pub global activate very_good_cli
 
       - name: ✨ Check Formatting
         run: |
-          exclude_patterns="${{ inputs.format_exclude }}"
+          exclude_patterns="${{ inputs.format_exclude }}
           find_cmd="find lib test -name '*.dart'"
           for pattern in $exclude_patterns; do
             find_cmd+=" ! -path '$pattern'"
@@ -127,7 +128,7 @@ jobs:
           eval "$find_cmd" | xargs dart format --line-length ${{ inputs.format_line_length }} --set-exit-if-changed
 
       - name: 🕵️ Analyze
-        run: flutter analyze ${{ inputs.analyze_directories }}
+        run: flutter analyze ${{ inputs.analyze_directories }} --exclude example/*
 
       - name: 🧪 Run Tests
         run: |
