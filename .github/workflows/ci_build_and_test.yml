@@ -92,6 +92,7 @@ jobs:
             echo "flutter-versions=$VERSIONS" >> "$GITHUB_OUTPUT"
   build:
     runs-on: ${{inputs.runs_on}}
+    needs: define-flutter-versions
     timeout-minutes: 30
     strategy:
       matrix:
