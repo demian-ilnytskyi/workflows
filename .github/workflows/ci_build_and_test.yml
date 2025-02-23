@@ -70,7 +70,7 @@ jobs:
       runs-on: ubuntu-latest
 
       outputs:
-        colors: ${{ steps.flutter-versions.outputs.flutter-versions }}
+        flutter-versions: ${{ steps.flutter-versions.outputs.flutter-versions }}
 
       steps:
         - name: Define Flutter Versions
