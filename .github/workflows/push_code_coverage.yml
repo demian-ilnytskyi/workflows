@@ -85,8 +85,10 @@ jobs:
       matrix:
         flutter_versions: ${{ fromJSON(needs.define-flutter-versions.outputs.flutter-versions) }}
     steps:
-      - uses: actions/checkout@v4.1.1
-      - uses: subosito/flutter-action@v2.12.0
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4.1.1
+      - name: 🎯 Setup Flutter (Version - ${{ matrix.flutter_versions }})
+        uses: subosito/flutter-action@v2.12.0
         with:
           channel: ${{inputs.flutter_channel}}
           cache: true
@@ -97,10 +99,10 @@ jobs:
 
       - name: 📦 Install Dependencies
         run: flutter pub get
-      - name: 📦 Build Dependecies
-        if: ${{inputs.run_build}}
+      - name: 🏗️ Build Dependencies
+        if: ${{ inputs.run_build }}
         run: flutter pub run build_runner build --delete-conflicting-outputs
-      - name: Install Very Good CLI
+      - name: 🚀 Install Very Good CLI
         run: |
           flutter pub global activate very_good_cli
           very_good packages get --recursive --ignore=${{inputs.package_get_excludes}}
