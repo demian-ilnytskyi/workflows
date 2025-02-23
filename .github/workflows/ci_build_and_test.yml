@@ -66,7 +66,7 @@ permissions:
   contents: write # This is required for actions/checkout 
 
 jobs:
-  define-flutter-version:
+  define-flutter-versions:
       runs-on: ubuntu-latest
 
       outputs:
@@ -89,15 +89,15 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        flutter_version: ${{ fromJson(vars.MIN_FLUTTER_FRAMEWORK_VERSION == '' ? '["' + vars.FLUTTER_FRAMEWORK_VERSION + '"]' : '["' + vars.FLUTTER_FRAMEWORK_VERSION + '", "' + vars.MIN_FLUTTER_FRAMEWORK_VERSION + '"]') }}
+        flutter_versions: ${{ fromJSON(needs.define-flutter-versions.outputs.flutter-versions) }}
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4.1.1
 
-      - name: 🎯 Setup Flutter (Version - ${{ matrix.flutter_version }})
+      - name: 🎯 Setup Flutter (Version - ${{ matrix.flutter_versions }})
         uses: subosito/flutter-action@v2.12.0
         with:
-          flutter-version: ${{ matrix.flutter_version }}
+          flutter-version: ${{ matrix.flutter_versions }}
           channel: ${{ inputs.flutter_channel }}
           cache: true
           cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:"
