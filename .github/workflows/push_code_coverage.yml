@@ -50,6 +50,30 @@ on:
         default: false
 
 jobs:
+  define-flutter-versions:
+      runs-on: ubuntu-latest
+
+      outputs:
+        flutter-versions: ${{ steps.flutter-versions.outputs.flutter-versions }}
+
+      steps:
+        - name: Define Flutter Versions
+          id: flutter-versions
+          env:
+            flutter_version: ${{ vars.FLUTTER_FRAMEWORK_VERSION }}
+          run: |
+            VERSION="${{env.flutter_version}}"
+            IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
+
+            if [[ ${#VERSION_ARRAY[@]} -ge 2 ]]; then
+              VERSIONS="[\"${VERSION_ARRAY[0]}\", \"${VERSION_ARRAY[1]}\"]"
+            elif [[ ${#VERSION_ARRAY[@]} -eq 1 ]]; then
+              VERSIONS="[\"${VERSION_ARRAY[0]}\"]"
+            else
+              VERSIONS="[]"
+            fi
+            echo "flutter versions = $VERSIONS"
+            echo "flutter-versions=$VERSIONS" >> "$GITHUB_OUTPUT"
   push_code_coverage:
     timeout-minutes: 30
     outputs:
@@ -68,7 +92,7 @@ jobs:
           cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:" # optional, change this to force refresh cache
           cache-path: "${{ runner.tool_cache }}/flutter/:channel:-:version:-:arch:" # optional, change this to specify the cache path
           architecture: x64 # optional, x64 or arm64
-          flutter-version: ${{ vars.FLUTTER_FRAMEWORK_VERSION }}
+          flutter-version: ${{ matrix.flutter_versions }}
 
       - name: 📦 Install Dependencies
         run: flutter pub get
@@ -105,4 +129,5 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{inputs.working_directory}}/coverage/lcov.info
           fail_ci_if_error: true
+          name: flutter-version-${{ matrix.flutter_version }}
           verbose: true
