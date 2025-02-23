@@ -1,10 +1,10 @@
 name: Push Code Coverage
 
 env:
-  GITHUB_OUTPUT: ${{ github.workspace }}/.github/workflows/output.txt
+  GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
 permissions:
-  id-token: write
-  contents: write
+  id-token: write # This is required for requesting the JWT
+  contents: write # This is required for actions/checkout 
 
 on:
   workflow_call:
@@ -51,107 +51,83 @@ on:
 
 jobs:
   define-flutter-versions:
-    runs-on: ${{ inputs.runs_on }}
-    outputs:
-      flutter-versions: ${{ steps.flutter-versions.outputs.flutter-versions }}
-    steps:
-      - name: Define Flutter Versions
-        id: flutter-versions
-        env:
-          flutter_version: ${{ vars.FLUTTER_FRAMEWORK_VERSION }}
-        run: |
-          VERSION="${{ env.flutter_version }}"
-          IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
-          if [[ ${#VERSION_ARRAY[@]} -ge 2 ]]; then
-            VERSIONS="[\"${VERSION_ARRAY[0]}\", \"${VERSION_ARRAY[1]}\"]"
-          elif [[ ${#VERSION_ARRAY[@]} -eq 1 ]]; then
-            VERSIONS="[\"${VERSION_ARRAY[0]}\"]"
-          else
-            VERSIONS="[]"
-          fi
-          echo "flutter versions = $VERSIONS"
-          echo "flutter-versions=$VERSIONS" >> "$GITHUB_OUTPUT"
+      runs-on: ${{inputs.runs_on}}
 
-  run_tests:
+      outputs:
+        flutter-versions: ${{ steps.flutter-versions.outputs.flutter-versions }}
+
+      steps:
+        - name: Define Flutter Versions
+          id: flutter-versions
+          env:
+            flutter_version: ${{ vars.FLUTTER_FRAMEWORK_VERSION }}
+          run: |
+            VERSION="${{env.flutter_version}}"
+            IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
+
+            if [[ ${#VERSION_ARRAY[@]} -ge 2 ]]; then
+              VERSIONS="[\"${VERSION_ARRAY[0]}\", \"${VERSION_ARRAY[1]}\"]"
+            elif [[ ${#VERSION_ARRAY[@]} -eq 1 ]]; then
+              VERSIONS="[\"${VERSION_ARRAY[0]}\"]"
+            else
+              VERSIONS="[]"
+            fi
+            echo "flutter versions = $VERSIONS"
+            echo "flutter-versions=$VERSIONS" >> "$GITHUB_OUTPUT"
+  push_code_coverage:
     timeout-minutes: 30
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{inputs.runs_on}}
     needs: define-flutter-versions
     defaults:
       run:
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{inputs.working_directory}}
     strategy:
       matrix:
-        flutter_version: ${{ fromJSON(needs.define-flutter-versions.outputs.flutter-versions) }}
+        flutter_versions: ${{ fromJSON(needs.define-flutter-versions.outputs.flutter-versions) }}
     steps:
       - uses: actions/checkout@v4.1.1
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2.12.0
+      - uses: subosito/flutter-action@v2.12.0
         with:
-          channel: ${{ inputs.flutter_channel }}
-          flutter-version: ${{ matrix.flutter_version }}
+          channel: ${{inputs.flutter_channel}}
           cache: true
-          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:"
-          cache-path: "${{ runner.tool_cache }}/flutter/:channel:-:version:-:arch:"
-          architecture: x64
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:" # optional, change this to force refresh cache
+          cache-path: "${{ runner.tool_cache }}/flutter/:channel:-:version:-:arch:" # optional, change this to specify the cache path
+          architecture: x64 # optional, x64 or arm64
+          flutter-version: ${{ matrix.flutter_versions }}
+
       - name: 📦 Install Dependencies
         run: flutter pub get
-      - name: 📦 Build Dependencies
-        if: ${{ inputs.run_build }}
+      - name: 📦 Build Dependecies
+        if: ${{inputs.run_build}}
         run: flutter pub run build_runner build --delete-conflicting-outputs
       - name: Install Very Good CLI
         run: |
           flutter pub global activate very_good_cli
-          very_good packages get --recursive --ignore=${{ inputs.package_get_excludes }}
+          very_good packages get --recursive --ignore=${{inputs.package_get_excludes}}
       - name: Install Lcov
-        if: ${{ inputs.coverage_excludes }}
+        if: ${{inputs.coverage_excludes}}
         run: |
           sudo apt-get update
           sudo apt-get install -y lcov
-      - name: 🧪 Run Tests with Coverage
-        run: very_good test -j ${{ inputs.concurrency }} ${{ (inputs.test_recursion && '--recursive') || '' }} ${{ (inputs.test_optimization && '--optimization') || '--no-optimization' }} --coverage --test-randomize-ordering-seed random
-      - name: Exclude Coverage
-        if: ${{ inputs.coverage_excludes }}
-        run: lcov --remove coverage/lcov.info ${{ inputs.coverage_excludes }} --output-file coverage/lcov.info --ignore-errors unused
-      - name: Upload Coverage Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: coverage-${{ matrix.flutter_version }}
-          path: ${{ inputs.working_directory }}/coverage/lcov.info
 
-  merge_and_upload:
-    runs-on: ${{ inputs.runs_on }}
-    needs: run_tests
-    defaults:
-      run:
-        working-directory: ${{ inputs.working_directory }}
-    steps:
-      - name: Download Coverage Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: coverage-artifacts
-      - name: Merge Coverage Reports
-        run: |
-          mkdir -p merged
-          merged_file=merged/lcov.info
-          for file in $(find coverage-artifacts -name "coverage-*.info"); do
-            if [ ! -f "$merged_file" ]; then
-              cp "$file" "$merged_file"
-            else
-              lcov -a "$merged_file" -a "$file" -o "$merged_file"
-            fi
-          done
-          echo "Merged coverage file created at merged/lcov.info"
-      - name: Check Aggregated Code Coverage
+      - name: 🧪 Run Tests
+        run: very_good test -j ${{inputs.concurrency}} ${{(inputs.test_recursion && '--recursive') || ''}} ${{(inputs.test_optimization && '--optimization') || '--no-optimization'}} --coverage --test-randomize-ordering-seed random
+
+      - name: Exclude coverage
+        if: ${{inputs.coverage_excludes}}
+        run: lcov --remove coverage/lcov.info ${{inputs.coverage_excludes}} --output-file coverage/lcov.info --ignore-errors unused
+
+      - name: 📊 Check Code Coverage
         uses: VeryGoodOpenSource/very_good_coverage@v3
         with:
-          path: ${{ inputs.working_directory }}/merged/lcov.info
-          exclude: ${{ inputs.coverage_excludes }}
-          min_coverage: ${{ inputs.min_coverage }}
-      - name: Upload Merged Coverage to Codecov
+          path: ${{inputs.working_directory}}/coverage/lcov.info
+          exclude: ${{inputs.coverage_excludes}}
+          min_coverage: ${{inputs.min_coverage}}
+          
+      - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ${{ inputs.working_directory }}/merged/lcov.info
+          files: ${{inputs.working_directory}}/coverage/lcov.info
           fail_ci_if_error: true
-          name: merged-coverage
           verbose: true

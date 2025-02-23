@@ -77,13 +77,13 @@ jobs:
             VERSION="${{env.flutter_version}}"
             IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
 
-            if [[ ${#VERSION_ARRAY[@]} -ge 2 ]]; then
-              VERSIONS="[\"${VERSION_ARRAY[0]}\", \"${VERSION_ARRAY[1]}\"]"
-            elif [[ ${#VERSION_ARRAY[@]} -eq 1 ]]; then
-              VERSIONS="[\"${VERSION_ARRAY[0]}\"]"
-            else
-              VERSIONS="[]"
-            fi
+            VERSION="${{ env.flutter_version }}"
+            IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
+            VERSIONS="["
+            for version in "${VERSION_ARRAY[@]}"; do
+              VERSIONS="${VERSIONS}\"$version\", "
+            done
+            VERSIONS="${VERSIONS%, }]"
             echo "flutter versions = $VERSIONS"
             echo "flutter-versions=$VERSIONS" >> "$GITHUB_OUTPUT"
   build:
