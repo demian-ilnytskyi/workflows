@@ -48,13 +48,17 @@ on:
         required: false
         type: boolean
         default: false
+      flutter_versions:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   define-flutter-versions:
       runs-on: ${{inputs.runs_on}}
 
       outputs:
-        flutter-versions: ${{ steps.flutter-versions.outputs.flutter-versions }}
+        flutter-versions: ${{ inputs.flutter_versions != '' ? inputs.flutter_framework_version : vars.FLUTTER_FRAMEWORK_VERSION }}
 
       steps:
         - name: Define Flutter Versions
