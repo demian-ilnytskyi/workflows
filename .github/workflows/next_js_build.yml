@@ -1,0 +1,54 @@
+# release_build.yaml
+name: Next JS Build
+
+# Controls when the workflow will run
+on:
+  workflow_call:
+    inputs:
+      FLAVOUR:
+        required: true
+        type: string
+        default: "production"
+      runs_on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      folder_max_mb_size:
+        required: false
+        type: number
+        default: 3
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read # This is required for actions/checkout
+
+jobs:
+  build:
+    runs-on: ${{inputs.runs_on}} # We are using ubuntu to deploy flutter web
+    timeout-minutes: 20
+    environment: ${{inputs.FLAVOUR}}
+    permissions: # set permissions for AWS creentials specifically
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.5
+      - name: Set Up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
+      - name: 📦 Install Dependencies
+       # npm ci instead of npm install to not overwrite package_lock.json
+        run: npm install
+          
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
+          accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
+          command: deploy
+          packageManager: npm
+          environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
+          preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
+        env:
+          NEXT_PUBLIC_FLAVOUR: ${{ inputs.FLAVOUR }}
