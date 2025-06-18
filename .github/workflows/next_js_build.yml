@@ -52,3 +52,5 @@ jobs:
           preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
         env:
           NEXT_PUBLIC_FLAVOUR: ${{ inputs.FLAVOUR }}
+          NEXT_PUBLIC_TELEGRAM_BOT_TOKEN: ${{ secrets.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN }}
+          NEXT_PUBLIC_TELEGRAM_SEND_CHAT_ID: ${{ secrets.NEXT_PUBLIC_TELEGRAM_SEND_CHAT_ID }}
