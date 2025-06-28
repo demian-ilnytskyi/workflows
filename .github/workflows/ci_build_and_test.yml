@@ -153,3 +153,13 @@ jobs:
           path: ${{ inputs.working_directory }}/coverage/lcov.info
           exclude: ${{ inputs.coverage_excludes }}
           min_coverage: ${{ inputs.min_coverage }}
+  notify:
+    if: always() # Ensures this job runs regardless of the completion status of dependent jobs
+    needs:
+      - build
+    uses: ./.github/workflows/notification.yml
+    secrets: inherit
+    with:
+      job_status: ${{ needs.build.result }}
+      workflow: ${{ github.workflow }}
+      runs_on: ${{inputs.runs_on}}

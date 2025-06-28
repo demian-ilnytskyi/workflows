@@ -141,3 +141,13 @@ jobs:
           fail_ci_if_error: true
           name: flutter-version-${{ matrix.flutter_versions }}
           verbose: true
+  notify:
+    if: always() # Ensures this job runs regardless of the completion status of dependent jobs
+    needs:
+      - push_code_coverage
+    uses: ./.github/workflows/notification.yml
+    secrets: inherit
+    with:
+      job_status: ${{ needs.push_code_coverage.result }}
+      workflow: ${{ github.workflow }}
+      runs_on: ${{inputs.runs_on}}

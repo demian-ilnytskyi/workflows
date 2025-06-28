@@ -1,0 +1,40 @@
+name: Notify
+
+on:
+  workflow_call:
+    inputs:
+      job_status:
+        required: true
+        type: string
+      workflow:
+        required: true
+        type: string
+      dop_text:
+        required: false
+        type: string
+        default: ""
+      runs_on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+
+jobs:
+  notification:
+    timeout-minutes: 3
+    runs-on: ${{ inputs.runs_on }}
+    steps:
+      - name: Notify on Success
+        if: ${{ inputs.job_status == 'success' }}
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: ${{ format('✅ Build successful for {0} in repository {1}{2}.', inputs.workflow, github.event.repository.name, inputs.dop_text != '' && format(' -------- {0}', inputs.dop_text) || '') }}
+
+      - name: Notify on Failure
+        if: ${{ inputs.job_status == 'failure' }}
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: ${{ format('❌ Build failed for {0} in repository {1}{2}.', inputs.workflow, github.event.repository.name, inputs.dop_text != '' && format(' -------- {0}', inputs.dop_text) || '') }}
