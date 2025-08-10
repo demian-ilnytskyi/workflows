@@ -47,13 +47,11 @@ jobs:
 
       - name: Merge envs and set
         run: |
-          # Додаємо з inputs.DEPLOY_ENV
           echo "${{ inputs.cloudflare_secrets }}" | while IFS=: read -r key value; do
             key=$(echo "$key" | xargs)
             value=$(echo "$value" | xargs)
             echo "$key=$value" >> $GITHUB_ENV
           done
-          # Автоматично додаємо NEXT_PUBLIC_FLAVOUR
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
           
       - name: Deploy
