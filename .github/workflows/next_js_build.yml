@@ -48,8 +48,11 @@ jobs:
       - name: Merge envs and set
         run: |
           echo "${{ inputs.cloudflare_secrets }}" | while IFS=: read -r key value; do
+            # Пропустити пусті або неправильні рядки
+            [ -z "$key" ] && continue
             key=$(echo "$key" | xargs)
             value=$(echo "$value" | xargs)
+            [ -z "$key" ] && continue
             echo "$key=$value" >> $GITHUB_ENV
           done
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
