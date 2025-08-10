@@ -17,6 +17,10 @@ on:
         required: false
         type: number
         default: 3
+      secrets:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   id-token: write # This is required for requesting the JWT
@@ -40,6 +44,17 @@ jobs:
       - name: 📦 Install Dependencies
        # npm ci instead of npm install to not overwrite package_lock.json
         run: npm install
+
+      - name: Merge envs and set
+        run: |
+          # Додаємо з inputs.DEPLOY_ENV
+          echo "${{ inputs.secrets }}" | while IFS=: read -r key value; do
+            key=$(echo "$key" | xargs)
+            value=$(echo "$value" | xargs)
+            echo "$key=$value" >> $GITHUB_ENV
+          done
+          # Автоматично додаємо NEXT_PUBLIC_FLAVOUR
+          echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
           
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
@@ -50,10 +65,6 @@ jobs:
           packageManager: npm
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
           preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
-        env:
-          NEXT_PUBLIC_FLAVOUR: ${{ inputs.FLAVOUR }}
-          NEXT_PUBLIC_TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          NEXT_PUBLIC_TELEGRAM_SEND_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
