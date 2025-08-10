@@ -46,14 +46,22 @@ jobs:
         run: npm install
 
       - name: Set env
+        env:
+          SECRETS_CONTEXT: ${{ toJSON(secrets) }}
         run: |
           echo "${{ inputs.secrets_map }}" | while IFS=':' read -r secret_name env_var; do
             secret_name=$(echo "$secret_name" | xargs)
             env_var=$(echo "$env_var" | xargs)
+
             if [[ -n "$secret_name" && -n "$env_var" ]]; then
-              eval "echo $env_var=\${{ secrets.$secret_name }}" >> $GITHUB_ENV
+              secret_value=$(echo "$SECRETS_CONTEXT" | jq -r --arg key "$secret_name" '.[$key]')
+              
+              if [[ "$secret_value" != "null" && -n "$secret_value" ]]; then
+                echo "$env_var=$secret_value" >> $GITHUB_ENV
+              fi
             fi
           done
+
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
         shell: bash
           
