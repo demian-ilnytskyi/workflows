@@ -49,7 +49,7 @@ jobs:
         env:
           SECRETS_CONTEXT: ${{ toJSON(secrets) }}
         run: |
-          echo "${{ inputs.secrets_map }}" | while IFS=':' read -r secret_name env_var; do
+          echo "${{ inputs.secrets_map }}" | while IFS=':' read -r env_var secret_name; do
             secret_name=$(echo "$secret_name" | xargs)
             env_var=$(echo "$env_var" | xargs)
 
