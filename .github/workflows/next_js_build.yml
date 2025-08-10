@@ -48,7 +48,7 @@ jobs:
       - name: Merge envs and set
         run: |
           # Додаємо з inputs.DEPLOY_ENV
-          echo "${{ inputs.secrets }}" | while IFS=: read -r key value; do
+          echo "${{ inputs.cloudflare_secrets }}" | while IFS=: read -r key value; do
             key=$(echo "$key" | xargs)
             value=$(echo "$value" | xargs)
             echo "$key=$value" >> $GITHUB_ENV
