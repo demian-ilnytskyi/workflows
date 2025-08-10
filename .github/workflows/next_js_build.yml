@@ -56,6 +56,8 @@ jobs:
             echo "$key=$value" >> $GITHUB_ENV
           done
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
+          echo "NEXT_PUBLIC_TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> $GITHUB_ENV
+          echo "NEXT_PUBLIC_TELEGRAM_SEND_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}" >> $GITHUB_ENV
           
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
