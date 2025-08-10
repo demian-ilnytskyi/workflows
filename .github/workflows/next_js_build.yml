@@ -45,19 +45,17 @@ jobs:
        # npm ci instead of npm install to not overwrite package_lock.json
         run: npm install
 
-      - name: Merge envs and set
+      - name: Set env
         run: |
-          echo "${{ inputs.cloudflare_secrets }}" | while IFS=: read -r key value; do
-            # Пропустити пусті або неправильні рядки
-            [ -z "$key" ] && continue
-            key=$(echo "$key" | xargs)
-            value=$(echo "$value" | xargs)
-            [ -z "$key" ] && continue
-            echo "$key=$value" >> $GITHUB_ENV
+          echo "${{ inputs.secrets_map }}" | while IFS=':' read -r secret_name env_var; do
+            secret_name=$(echo "$secret_name" | xargs)
+            env_var=$(echo "$env_var" | xargs)
+            if [[ -n "$secret_name" && -n "$env_var" ]]; then
+              eval "echo $env_var=\${{ secrets.$secret_name }}" >> $GITHUB_ENV
+            fi
           done
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_TELEGRAM_SEND_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}" >> $GITHUB_ENV
+        shell: bash
           
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
