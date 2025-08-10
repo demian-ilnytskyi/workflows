@@ -74,10 +74,6 @@ jobs:
           packageManager: npm
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
           preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
-        # env:
-        #   NEXT_PUBLIC_FLAVOUR: ${{ inputs.FLAVOUR }}
-        #   NEXT_PUBLIC_TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        #   NEXT_PUBLIC_TELEGRAM_SEND_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
