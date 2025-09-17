@@ -54,16 +54,44 @@ on:
         default: ""
 
 jobs:
+  define-flutter-versions:
+      runs-on: ${{inputs.runs_on}}
+
+      outputs:
+        flutter-versions: ${{ steps.flutter-versions.outputs.flutter-versions }}
+
+      steps:
+        - name: Define Flutter Versions
+          id: flutter-versions
+          env:
+            flutter_version: ${{ inputs.flutter_versions || vars.FLUTTER_FRAMEWORK_VERSION }}
+          run: |
+            VERSION="${{env.flutter_version}}"
+            IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
+
+            VERSION="${{ env.flutter_version }}"
+            IFS=', ' read -r -a VERSION_ARRAY <<< "$VERSION"
+            VERSIONS="["
+            for version in "${VERSION_ARRAY[@]}"; do
+              VERSIONS="${VERSIONS}\"$version\", "
+            done
+            VERSIONS="${VERSIONS%, }]"
+            echo "flutter versions = $VERSIONS"
+            echo "flutter-versions=$VERSIONS" >> "$GITHUB_OUTPUT"
   push_code_coverage:
     timeout-minutes: 30
     runs-on: ${{inputs.runs_on}}
+    needs: define-flutter-versions
     defaults:
       run:
         working-directory: ${{inputs.working_directory}}
+    strategy:
+      matrix:
+        flutter_versions: ${{ fromJSON(needs.define-flutter-versions.outputs.flutter-versions) }}
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4.1.1
-      - name: 🎯 Setup Flutter (Version - ${{ vars.FLUTTER_FRAMEWORK_VERSION }})
+      - name: 🎯 Setup Flutter (Version - ${{ matrix.flutter_versions }})
         uses: subosito/flutter-action@v2.12.0
         with:
           channel: ${{inputs.flutter_channel}}
@@ -71,7 +99,7 @@ jobs:
           cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:" # optional, change this to force refresh cache
           cache-path: "${{ runner.tool_cache }}/flutter/:channel:-:version:-:arch:" # optional, change this to specify the cache path
           architecture: x64 # optional, x64 or arm64
-          flutter-version: ${{ vars.FLUTTER_FRAMEWORK_VERSION }}
+          flutter-version: ${{ matrix.flutter_versions }}
 
       - name: 📦 Install Dependencies
         run: flutter pub get
@@ -88,7 +116,7 @@ jobs:
 
       - name: 🧪 Run Tests
         run: |
-          if [[ "$(echo ${{ vars.FLUTTER_FRAMEWORK_VERSION }} | cut -d'.' -f1-2)" < "3.16" ]]; then
+          if [[ "$(echo ${{ matrix.flutter_versions }} | cut -d'.' -f1-2)" < "3.16" ]]; then
             flutter test --coverage --test-randomize-ordering-seed random
           else
             very_good test -j ${{inputs.concurrency}} ${{(inputs.test_recursion && '--recursive') || ''}} ${{(inputs.test_optimization && '--optimization') || '--no-optimization'}} --coverage --test-randomize-ordering-seed random
@@ -111,6 +139,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{inputs.working_directory}}/coverage/lcov.info
           fail_ci_if_error: true
+          name: flutter-version-${{ matrix.flutter_versions }}
           verbose: true
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
