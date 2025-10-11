@@ -31,7 +31,18 @@ jobs:
 
       - name: Update Cloudflare KV
         run: |
-          curl -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{inputs.kv_id}}/values/${{inputs.variable_name}}" \
+          set -e
+          curl -X POST "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{inputs.kv_id}}/values/${{inputs.variable_name}}" \
             -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             -H "Content-Type: text/plain" \
             --data "${{inputs.variable_value}}"
+  notify:
+    if: always() # Ensures this job runs regardless of the completion status of dependent jobs
+    needs:
+      - update-kv
+    uses: ./.github/workflows/notification.yml
+    secrets: inherit
+    with:
+      job_status: ${{ needs.update-kv.result }}
+      workflow: ${{ github.workflow }}
+      runs_on: ${{inputs.runs_on}}
