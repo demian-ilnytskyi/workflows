@@ -21,10 +21,6 @@ on:
         type: string
         default: "ubuntu-latest"
 
-concurrency:
-  group: update-bonds-limit
-  cancel-in-progress: true
-
 jobs:
   update-kv:
     runs-on: ${{inputs.runs_on}}
