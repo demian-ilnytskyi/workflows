@@ -62,9 +62,9 @@ jobs:
         working-directory: ${{inputs.working_directory}}
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4.1.1
+        uses: actions/checkout@main
       - name: 🎯 Setup Flutter (Version - ${{ vars.FLUTTER_FRAMEWORK_VERSION }})
-        uses: subosito/flutter-action@v2.12.0
+        uses: subosito/flutter-action@main
         with:
           channel: ${{inputs.flutter_channel}}
           cache: true
@@ -99,14 +99,14 @@ jobs:
         run: lcov --remove coverage/lcov.info ${{inputs.coverage_excludes}} --output-file coverage/lcov.info --ignore-errors unused
 
       - name: 📊 Check Code Coverage
-        uses: VeryGoodOpenSource/very_good_coverage@v3
+        uses: VeryGoodOpenSource/very_good_coverage@main
         with:
           path: ${{inputs.working_directory}}/coverage/lcov.info
           exclude: ${{inputs.coverage_excludes}}
           min_coverage: ${{inputs.min_coverage}}
           
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@main
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{inputs.working_directory}}/coverage/lcov.info

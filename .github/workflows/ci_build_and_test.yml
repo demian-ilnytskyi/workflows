@@ -74,10 +74,10 @@ jobs:
         working-directory: ${{inputs.working_directory}}
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4.1.1
+        uses: actions/checkout@main
 
       - name: 🎯 Setup Flutter (Version - ${{ vars.FLUTTER_FRAMEWORK_VERSION }})
-        uses: subosito/flutter-action@v2.12.0
+        uses: subosito/flutter-action@main
         with:
           flutter-version: ${{ vars.FLUTTER_FRAMEWORK_VERSION }}
           channel: ${{ inputs.flutter_channel }}
@@ -120,7 +120,7 @@ jobs:
           fi
 
       - name: 📊 Check Code Coverage
-        uses: VeryGoodOpenSource/very_good_coverage@v3
+        uses: VeryGoodOpenSource/very_good_coverage@main
         with:
           path: ${{ inputs.working_directory }}/coverage/lcov.info
           exclude: ${{ inputs.coverage_excludes }}

@@ -148,7 +148,7 @@ jobs:
           fi
 
       - name: 📊 Check Code Coverage
-        uses: VeryGoodOpenSource/very_good_coverage@v3
+        uses: VeryGoodOpenSource/very_good_coverage@main
         with:
           path: ${{ inputs.working_directory }}/coverage/lcov.info
           exclude: ${{ inputs.coverage_excludes }}

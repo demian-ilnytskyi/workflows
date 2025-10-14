@@ -31,14 +31,11 @@ jobs:
     runs-on: ${{inputs.runs_on}} # We are using ubuntu to deploy flutter web
     timeout-minutes: 20
     environment: ${{inputs.FLAVOUR}}
-    permissions: # set permissions for AWS creentials specifically
-      id-token: write
-      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.1.5
+        uses: actions/checkout@main
       - name: Set Up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@main
         with:
           node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
       - name: 📦 Install Dependencies
@@ -66,7 +63,7 @@ jobs:
         shell: bash
           
       - name: Deploy
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@main
         with:
           apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
           accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
