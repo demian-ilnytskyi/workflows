@@ -91,7 +91,7 @@ jobs:
           preCommands: |
             # Read the list of secrets from the previous step's output and set them
             echo "🔒 Setting secrets in Cloudflare..."
-            secrets=${{steps.prepare_env.outputs.secret_definitions}}
+            secrets=${{steps.prepare_env.outputs.SECRETS}}
             IFS=';' read -ra pairs <<< "$secrets"
 
             for pair in "${pairs[@]}"; do
