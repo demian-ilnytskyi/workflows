@@ -71,7 +71,7 @@ jobs:
           packageManager: npm
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
           preCommands: |
-            echo "NEXT_PUBLIC_BUILD_ID=$(date +%s)" > .env.local
+            echo "NEXT_PUBLIC_FLAVOUR=$(date +%s)" >> $GITHUB_ENV
 
             npm run pre-deploy
             chmod +x ./check_app_size.sh
