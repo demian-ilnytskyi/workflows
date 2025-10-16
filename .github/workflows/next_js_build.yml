@@ -98,13 +98,6 @@ jobs:
             echo "${{ steps.prepare_env.outputs.secret_definitions }}" | while IFS= read -r line; do
               echo "TEST 6"
               if [[ -n "$line" ]]; then
-                echo "TEST"
-                SECRET_KEY=$(echo "$line" | cut -d'=' -f1)
-                echo "TEST 2"
-                eval "SECRET_VALUE=${line#*=}"
-                echo "TEST 3"
-                echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
-                echo "TEST 4"
               fi
             done
             echo "✅ Secrets set."
