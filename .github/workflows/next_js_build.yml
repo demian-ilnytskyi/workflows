@@ -45,6 +45,8 @@ jobs:
       - name: Set env
         env:
           SECRETS_CONTEXT: ${{ toJSON(secrets) }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           echo "${{ inputs.secrets_map }}" | while IFS=':' read -r env_var secret_name; do
             env_var=$(echo "$env_var" | xargs)
