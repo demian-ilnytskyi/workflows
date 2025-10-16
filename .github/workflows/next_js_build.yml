@@ -99,7 +99,7 @@ jobs:
               if [[ -n "$line" ]]; then
                 SECRET_KEY="${line%%=*}"
                 SECRET_VALUE="${line#*=}"
-                printf '%s' "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
+                echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
               fi
             done
             echo "✅ Secrets set."
