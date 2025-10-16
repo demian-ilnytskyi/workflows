@@ -60,6 +60,14 @@ jobs:
           done
 
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
+          # Generate new build number (timestamp)
+          BUILD_NUMBER=$(date +%s)
+
+          # Append to env file
+          echo "NEXT_PUBLIC_BUILD_ID=$BUILD_NUMBER" >> $GITHUB_ENV
+
+          # Print a message with the build number
+          echo "🚀 new BUILD ID - $BUILD_NUMBER"
         shell: bash
           
       - name: Deploy
@@ -71,8 +79,6 @@ jobs:
           packageManager: npm
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
           preCommands: |
-            echo "NEXT_PUBLIC_FLAVOUR=$(date +%s)" >> $GITHUB_ENV
-
             npm run pre-deploy
             chmod +x ./check_app_size.sh
             ./check_app_size.sh
