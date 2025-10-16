@@ -90,7 +90,8 @@ jobs:
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
           preCommands: |
             # Read the list of secrets from the previous step's output and set them
-            echo "🔒 Setting secrets in Cloudflare..."
+            echo "DEBUG: prepare_env output:"
+            echo "${{steps.prepare_env.outputs.SECRETS}}"
             secrets="${{steps.prepare_env.outputs.SECRETS}}"
             echo "Length: ${#secrets}"
             # OLD_IFS=$IFS
