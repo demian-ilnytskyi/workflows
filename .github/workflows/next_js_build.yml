@@ -68,6 +68,7 @@ jobs:
           done
 
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
+            echo "Length: ${#secrets}"
           
           echo "SECRETS=${secrets}" >> $GITHUB_OUTPUT
         shell: bash
