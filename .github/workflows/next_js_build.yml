@@ -66,6 +66,12 @@ jobs:
           # Append to env file
           echo "NEXT_PUBLIC_BUILD_ID=$BUILD_NUMBER" >> $GITHUB_ENV
 
+          mkdir -p public
+
+          BUILD_ID=$(date +%s)
+
+          echo "{\"BUILD_ID\": \"$BUILD_ID\"}" > "public/config.json"
+
           # Print a message with the build number
           echo "🚀 new BUILD ID - $BUILD_NUMBER"
         shell: bash
