@@ -70,7 +70,12 @@ jobs:
           command: deploy
           packageManager: npm
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
-          preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
+          preCommands: |
+            echo "NEXT_PUBLIC_BUILD_ID=$(date +%s)" > .env.local
+
+            npm run pre-deploy
+            chmod +x ./check_app_size.sh
+            ./check_app_size.sh
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
