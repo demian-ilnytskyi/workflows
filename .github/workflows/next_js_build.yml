@@ -92,23 +92,14 @@ jobs:
             # Read the list of secrets from the previous step's output and set them
             echo "🔒 Setting secrets in Cloudflare..."
             secrets=${{steps.prepare_env.outputs.SECRETS}}
-            IFS=';' read -ra pairs <<< "$secrets"
-
-            for pair in "${pairs[@]}"; do
-                IFS='=' read -r SECRET_KEY SECRET_VALUE <<< "$pair"
-                echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"                
-            done
-            echo "${{ steps.prepare_env.outputs.SECRETS }}" | while IFS= read -r line; do
-              if [[ -n "$line" ]]; then
-                # Extract the variable name (the part before the first '=')
-                SECRET_KEY=$(echo "$line" | cut -d'=' -f1)
-                
-                # Evaluate the line to set the variable in the shell, then pipe its value to wrangler
-                # This safely handles multi-line secrets
-                eval "SECRET_VALUE=${line#*=}"
+            OLD_IFS=$IFS
+            IFS=';'
+            for pair in $secrets; do
+                SECRET_KEY=${pair%%=*}    # Everything before '='
+                SECRET_VALUE=${pair#*=}   # Everything after '='
                 echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
-              fi
             done
+            IFS=$OLD_IFS
             echo "✅ Secrets set."
 
             npm run pre-deploy
