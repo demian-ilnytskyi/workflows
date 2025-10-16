@@ -94,20 +94,16 @@ jobs:
           packageManager: npm
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
           preCommands: |
-            # Read the list of secrets from the previous step's output and set them
             echo "🔒 Setting secrets in Cloudflare..."
             echo "${{ steps.prepare_env.outputs.secret_definitions }}" | while IFS= read -r line; do
               if [[ -n "$line" ]]; then
-                # Extract the variable name (the part before the first '=')
-                SECRET_KEY=$(echo "$line" | cut -d'=' -f1)
-                
-                # Evaluate the line to set the variable in the shell, then pipe its value to wrangler
-                # This safely handles multi-line secrets
-                eval "SECRET_VALUE=${line#*=}"
-                echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
+                SECRET_KEY="${line%%=*}"
+                SECRET_VALUE="${line#*=}"
+                printf '%s' "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
               fi
             done
             echo "✅ Secrets set."
+
 
             npm run pre-deploy
             chmod +x ./check_app_size.sh
