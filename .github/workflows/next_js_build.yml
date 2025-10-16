@@ -95,10 +95,11 @@ jobs:
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
           preCommands: |
             echo "🔒 Setting secrets in Cloudflare..."
-            echo '${{ steps.prepare_env.outputs.secret_definitions }}' | while IFS= read -r line; do
-              echo "TEST 6"
-            done
-            echo "✅ Secrets set."
+            while IFS= read -r line; do
+              # Skip empty lines
+              [ -z "$line" ] && continue
+              echo "$line"
+            done <<< "${{ steps.prepare_env.outputs.secret_definitions }}"
 
             npm run pre-deploy
             chmod +x ./check_app_size.sh
