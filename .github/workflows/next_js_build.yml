@@ -47,28 +47,34 @@ jobs:
         env:
           SECRETS_CONTEXT: ${{ toJSON(secrets) }}
         run: |
-          echo "${{ inputs.secrets_map }}" | while IFS=':' read -r env_var secret_name; do
-            env_var=$(echo "$env_var" | xargs)
-            secret_name=$(echo "$secret_name" | xargs)
+          # Use command substitution to capture the output of the loop into a variable
+          SECRET_DEFINITIONS=$(
+            echo "${{ inputs.secrets_map }}" | while IFS=':' read -r env_var secret_name; do
+              env_var=$(echo "$env_var" | xargs)
+              secret_name=$(echo "$secret_name" | xargs)
 
-            if [[ -n "$secret_name" && -n "$env_var" ]]; then
-              secret_value=$(echo "$SECRETS_CONTEXT" | jq -r --arg key "$secret_name" '.[$key]')
+              if [[ -n "$secret_name" && -n "$env_var" ]]; then
+                secret_value=$(echo "$SECRETS_CONTEXT" | jq -r --arg key "$secret_name" '.[$key]')
 
-              if [[ "$secret_value" != "null" && -n "$secret_value" ]]; then
-                # If it's a NEXT_PUBLIC_ variable → add to env (public)
-                if [[ "$env_var" == NEXT_PUBLIC_* ]]; then
-                  echo "$env_var=$secret_value" >> "$GITHUB_ENV"
-                  echo "✅ Added public var: $secret_name"
-                else
-                  printf '%s="%s"\n' "$env_var" "$secret_value"
+                if [[ "$secret_value" != "null" && -n "$secret_value" ]]; then
+                  # If it's a NEXT_PUBLIC_ variable → add to GITHUB_ENV for the build
+                  if [[ "$env_var" == NEXT_PUBLIC_* ]]; then
+                    echo "$env_var=$secret_value" >> "$GITHUB_ENV"
+                    echo "✅ Added public var for build: $env_var"
+                  else
+                    # Otherwise, print the definition to be captured by the variable
+                    printf '%s="%s"\n' "$env_var" "$secret_value"
+                  fi
                 fi
               fi
-            fi
-          done
+            done
+          )
 
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
-          # Generate new build number (timestamp)
-          BUILD_NUMBER=$(date +%s)
+          
+          echo "secret_definitions<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$SECRET_DEFINITIONS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
         shell: bash
 
       - name: Set Build Number
