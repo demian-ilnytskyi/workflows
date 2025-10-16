@@ -71,9 +71,6 @@ jobs:
           BUILD_ID=$(date +%s)
 
           echo "{\"BUILD_ID\": \"$BUILD_ID\"}" > "public/config.json"
-
-          # Print a message with the build number
-          echo "🚀 new BUILD ID - $BUILD_NUMBER"
         shell: bash
           
       - name: Deploy
