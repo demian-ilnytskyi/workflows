@@ -61,25 +61,28 @@ jobs:
                 else
                   # Otherwise, treat it as a secret → push to Cloudflare
                   echo "🔒 Setting secret in Cloudflare: $env_var"
-                  echo "$secret_value" | npx wrangler secret put "$env_var" --quiet
+                  # Note: --quiet removed (invalid)
+                  # Use printf to avoid newline issues
+                  printf "%s" "$secret_value" | npx wrangler secret put "$env_var" --name portfolio --yes
                 fi
               fi
             fi
           done
 
-
-          echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
-          # Generate new build number (timestamp)
+          # Add build env vars
+          echo "NEXT_PUBLIC_FLAVOUR=development" >> $GITHUB_ENV
           BUILD_NUMBER=$(date +%s)
 
-          # Append to env file
-          echo "NEXT_PUBLIC_BUILD_ID=$BUILD_NUMBER" >> $GITHUB_ENV
+          mkdir -p public
+          echo "{\"BUILD_ID\": \"$BUILD_NUMBER\"}" > "public/config.json"
+        shell: bash
+
+      - name: Set Build Number
+        run: |
+          BUILD_NUMBER=$(date +%s)
 
           mkdir -p public
-
-          BUILD_ID=$(date +%s)
-
-          echo "{\"BUILD_ID\": \"$BUILD_ID\"}" > "public/config.json"
+          echo "{\"BUILD_ID\": \"$BUILD_NUMBER\"}" > "public/config.json"
         shell: bash
           
       - name: Deploy
