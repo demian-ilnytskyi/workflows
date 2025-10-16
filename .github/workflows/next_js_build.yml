@@ -96,6 +96,7 @@ jobs:
           preCommands: |
             echo "🔒 Setting secrets in Cloudflare..."
             echo "${{ steps.prepare_env.outputs.secret_definitions }}" | while IFS= read -r line; do
+              echo "TEST 6"
               if [[ -n "$line" ]]; then
                 echo "TEST"
                 SECRET_KEY=$(echo "$line" | cut -d'=' -f1)
