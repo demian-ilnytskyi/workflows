@@ -97,13 +97,12 @@ jobs:
             echo "🔒 Setting secrets in Cloudflare..."
             echo "${{ steps.prepare_env.outputs.secret_definitions }}" | while IFS= read -r line; do
               if [[ -n "$line" ]]; then
-                SECRET_KEY="${line%%=*}"
-                SECRET_VALUE="${line#*=}"
+                SECRET_KEY=$(echo "$line" | cut -d'=' -f1)
+                eval "SECRET_VALUE=${line#*=}"
                 echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
               fi
             done
             echo "✅ Secrets set."
-
 
             npm run pre-deploy
             chmod +x ./check_app_size.sh
