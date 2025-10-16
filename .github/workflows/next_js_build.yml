@@ -61,6 +61,7 @@ jobs:
                   echo "$env_var=$secret_value" >> "$GITHUB_ENV"
                   echo "✅ Added public var: $secret_name"
                 else
+                  echo "✅ Added secret: $secret_name"
                   secrets="${secrets};${secret_name}=${env_var}"
                 fi
               fi
