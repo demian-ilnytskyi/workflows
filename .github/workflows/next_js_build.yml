@@ -54,28 +54,23 @@ jobs:
               secret_value=$(echo "$SECRETS_CONTEXT" | jq -r --arg key "$secret_name" '.[$key]')
 
               if [[ "$secret_value" != "null" && -n "$secret_value" ]]; then
-                # NEXT_PUBLIC_ → public env var
+                # If it's a NEXT_PUBLIC_ variable → add to env (public)
                 if [[ "$env_var" == NEXT_PUBLIC_* ]]; then
                   echo "$env_var=$secret_value" >> "$GITHUB_ENV"
                   echo "✅ Added public var: $env_var"
                 else
-                  # Private secret → Cloudflare
+                  # Otherwise, treat it as a secret → push to Cloudflare
                   echo "🔒 Setting secret in Cloudflare: $env_var"
-                  # Use printf to safely handle multi-line secrets
-                  printf "%s" "$secret_value" | npx wrangler secret put "$env_var" --name portfolio
+                  echo "$secret_value" | npx wrangler secret put "$env_var"
                 fi
               fi
             fi
           done
 
-          # Build vars
-          echo "NEXT_PUBLIC_FLAVOUR=development" >> "$GITHUB_ENV"
+
+          echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
+          # Generate new build number (timestamp)
           BUILD_NUMBER=$(date +%s)
-          echo "NEXT_PUBLIC_BUILD_ID=$BUILD_NUMBER" >> "$GITHUB_ENV"
-
-          mkdir -p public
-          echo "{\"BUILD_ID\": \"$BUILD_NUMBER\"}" > "public/config.json"
-
         shell: bash
 
       - name: Set Build Number
