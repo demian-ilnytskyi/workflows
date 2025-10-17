@@ -38,13 +38,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@main
-      # - name: Set Up Node.js
-      #   uses: actions/setup-node@main
-      #   with:
-      #     node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
-      # - name: 📦 Install Dependencies
-      #  # npm ci instead of npm install to not overwrite package_lock.json
-      #   run: npm install
+      - name: Set Up Node.js
+        uses: actions/setup-node@main
+        with:
+          node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
+      - name: 📦 Install Dependencies
+       # npm ci instead of npm install to not overwrite package_lock.json
+        run: npm install
 
       - name: Set env
         id: prepare_env # An ID is required to reference its output
@@ -53,18 +53,14 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{secrets.CLOUDFLARE_API_TOKEN}}
           CLOUDFLARE_ACCOUNT_ID: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
         run: |
-          mapfile -t EXCLUDE_LIST < <(echo "${{ inputs.set_as_env }}" | tr -d '\r' | sed '/^\s*$/d' | xargs -n1)
-
-          echo "test ${EXCLUDE_LIST}"
+          mapfile -t EXCLUDE_LIST <<< "${{ inputs.set_as_env }}"
 
           is_excluded() {
-            local var_to_check="$1"
-            # Use printf to print each array element on a new line, then grep for an exact, full-line match.
-            # -F: fixed string (not regex), -x: exact match, -q: quiet (just returns exit code)
-            if printf '%s\n' "${EXCLUDE_LIST[@]}" | grep -Fxq "$var_to_check"; then
-              return 0 # SUCCESS: The variable was found in the list.
-            fi
-            return 1 # FAILURE: The variable was not found.
+            local var="$1"
+            for item in "${EXCLUDE_LIST[@]}"; do
+              [[ "$item" == "$var" ]] && return 0
+            done
+            return 1
           }
 
           while IFS=':' read -r env_var secret_name; do
@@ -93,23 +89,23 @@ jobs:
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
         shell: bash
 
-      # - name: Set Build Number
-      #   run: |
-      #     BUILD_NUMBER=$(date +%s)
+      - name: Set Build Number
+        run: |
+          BUILD_NUMBER=$(date +%s)
 
-      #     mkdir -p public
-      #     echo "{\"BUILD_ID\": \"$BUILD_NUMBER\"}" > "public/config.json"
-      #   shell: bash
+          mkdir -p public
+          echo "{\"BUILD_ID\": \"$BUILD_NUMBER\"}" > "public/config.json"
+        shell: bash
           
-      # - name: Deploy
-      #   uses: cloudflare/wrangler-action@v3
-      #   with:
-      #     apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
-      #     accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
-      #     command: deploy
-      #     packageManager: npm
-      #     environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
-      #     preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
+          accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
+          command: deploy
+          packageManager: npm
+          environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
+          preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
