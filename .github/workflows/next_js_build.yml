@@ -53,12 +53,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{secrets.CLOUDFLARE_API_TOKEN}}
           CLOUDFLARE_ACCOUNT_ID: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
         run: |
-          mapfile -t EXCLUDE_LIST <<< "${{ inputs.set_as_env }}"
+          mapfile -t EXCLUDE_LIST < <(echo "${{ inputs.set_as_env }}" | tr -d '\r' | sed '/^\s*$/d')
 
           is_excluded() {
             local var="$1"
             for item in "${EXCLUDE_LIST[@]}"; do
-              [[ "$item" == "$var" ]] && return 0
+              item=$(echo "$item" | xargs) # trim spaces
+              if [[ "$item" == "$var" ]]; then
+                return 0
+              fi
             done
             return 1
           }
