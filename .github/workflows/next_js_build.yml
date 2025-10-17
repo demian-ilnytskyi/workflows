@@ -64,9 +64,9 @@ jobs:
                   echo "✅ Added secret: $secret_name"
                   # Improved logic to avoid a leading semicolon
                   if [ -z "$secrets" ]; then
-                    secrets="${secret_name}=${env_var}"
+                    secrets="${env_var}=${secret_value}"
                   else
-                    secrets="${secrets};${secret_name}=${env_var}"
+                    secrets="${secrets};${env_var}=${secret_value}"
                   fi
                 fi
               fi
@@ -91,7 +91,8 @@ jobs:
           for pair in $secrets; do
               SECRET_KEY=${pair%%=*}    # Everything before '='
               SECRET_VALUE=${pair#*=}   # Everything after '='
-              echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
+              echo "Secret: ${SECRET_KEY}=${SECRET_VALUE}"
+              # echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
           done
           IFS=$OLD_IFS
           echo "✅ Secrets set."
