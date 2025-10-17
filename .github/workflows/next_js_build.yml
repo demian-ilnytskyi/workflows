@@ -46,6 +46,8 @@ jobs:
         id: prepare_env # An ID is required to reference its output
         env:
           SECRETS_CONTEXT: ${{ toJSON(secrets) }}
+          CLOUDFLARE_API_TOKEN: ${{secrets.CLOUDFLARE_API_TOKEN}}
+          CLOUDFLARE_ACCOUNT_ID: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
         run: |
           while IFS=':' read -r env_var secret_name; do
             env_var=$(echo "$env_var" | xargs)
