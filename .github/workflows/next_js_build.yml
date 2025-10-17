@@ -47,7 +47,6 @@ jobs:
         env:
           SECRETS_CONTEXT: ${{ toJSON(secrets) }}
         run: |
-          secrets=""
           while IFS=':' read -r env_var secret_name; do
             env_var=$(echo "$env_var" | xargs)
             secret_name=$(echo "$secret_name" | xargs)
@@ -59,23 +58,16 @@ jobs:
                 # If it's a NEXT_PUBLIC_ variable → add to env (public)
                 if [[ "$env_var" == NEXT_PUBLIC_* ]]; then
                   echo "$env_var=$secret_value" >> "$GITHUB_ENV"
-                  echo "✅ Added public var: $secret_name"
+                  echo "✅ Added public var: $env_var"
                 else
-                  echo "✅ Added secret: $secret_name"
-                  # Improved logic to avoid a leading semicolon
-                  if [ -z "$secrets" ]; then
-                    secrets="${env_var}=${secret_value}"
-                  else
-                    secrets="${secrets};${env_var}=${secret_value}"
-                  fi
+                  echo "✅ Added secret: $env_var"
+                  echo "$secret_value" | npx wrangler secret put "$env_var"
                 fi
               fi
             fi
           done <<< "${{ inputs.secrets_map }}" # <-- The key change is here
 
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
-          
-          echo "SECRETS=${secrets}" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Set Build Number
@@ -95,37 +87,6 @@ jobs:
           packageManager: npm
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
           preCommands: |
-            # Assign the output to a variable for clarity
-            secrets_to_set="${{ steps.prepare_env.outputs.SECRETS }}"
-
-            # Check if there are any secrets to process. This is a POSIX-compliant check.
-            if [ -z "$secrets_to_set" ]; then
-              echo "No secrets to set. Skipping."
-            else
-              echo "Processing secrets..."
-              # Use a POSIX-compliant loop:
-              # 1. 'echo' the string.
-              # 2. 'tr' replaces the semicolon delimiter with a newline.
-              # 3. 'while read' processes each line, which is safer than a 'for' loop with word splitting.
-              echo "$secrets_to_set" | tr ';' '\n' | while IFS= read -r pair; do
-                # Skip empty lines that might result from trailing or double semicolons
-                if [ -z "$pair" ]; then
-                  continue
-                fi
-                
-                # Use 'cut' for POSIX-compliant string splitting.
-                SECRET_KEY=$(echo "$pair" | cut -d'=' -f1)
-                # Use 'cut -d'=' -f2-' to get everything *after* the first '='
-                SECRET_VALUE=$(echo "$pair" | cut -d'=' -f2-)
-
-                echo "Setting secret: $SECRET_KEY"
-                # Pipe the value to the command's standard input. This is the safest way
-                # to handle values that might contain special characters or spaces.
-                echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
-              done
-              echo "✅ Secrets set."
-            fi
-
             npm run pre-deploy
             chmod +x ./check_app_size.sh
             ./check_app_size.sh
