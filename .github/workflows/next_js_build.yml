@@ -38,9 +38,9 @@ jobs:
         uses: actions/setup-node@main
         with:
           node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
-      - name: 📦 Install Dependencies
-       # npm ci instead of npm install to not overwrite package_lock.json
-        run: npm install
+      # - name: 📦 Install Dependencies
+      #  # npm ci instead of npm install to not overwrite package_lock.json
+      #   run: npm install
 
       - name: Set env
         id: prepare_env # An ID is required to reference its output
@@ -74,46 +74,63 @@ jobs:
           done <<< "${{ inputs.secrets_map }}" # <-- The key change is here
 
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
-            echo "Length: ${#secrets}"
+          echo "Length: ${#secrets}"
+          echo "Secrets: ${secrets}"
           
           echo "SECRETS=${secrets}" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Set Build Number
+      - name: Test
         run: |
-          BUILD_NUMBER=$(date +%s)
-
-          mkdir -p public
-          echo "{\"BUILD_ID\": \"$BUILD_NUMBER\"}" > "public/config.json"
+          echo "DEBUG: prepare_env output:"
+          echo "${{steps.prepare_env.outputs.SECRETS}}"
+          secrets="${{steps.prepare_env.outputs.SECRETS}}"
+          echo "Length: ${#secrets}"
+          OLD_IFS=$IFS
+          IFS=';'
+          for pair in $secrets; do
+              SECRET_KEY=${pair%%=*}    # Everything before '='
+              SECRET_VALUE=${pair#*=}   # Everything after '='
+              echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
+          done
+          IFS=$OLD_IFS
+          echo "✅ Secrets set."
         shell: bash
-          
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
-          accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
-          command: deploy
-          packageManager: npm
-          environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
-          preCommands: |
-            # Read the list of secrets from the previous step's output and set them
-            echo "DEBUG: prepare_env output:"
-            echo "${{steps.prepare_env.outputs.SECRETS}}"
-            secrets="${{steps.prepare_env.outputs.SECRETS}}"
-            echo "Length: ${#secrets}"
-            OLD_IFS=$IFS
-            IFS=';'
-            for pair in $secrets; do
-                SECRET_KEY=${pair%%=*}    # Everything before '='
-                SECRET_VALUE=${pair#*=}   # Everything after '='
-                echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
-            done
-            IFS=$OLD_IFS
-            echo "✅ Secrets set."
+      # - name: Set Build Number
+      #   run: |
+      #     BUILD_NUMBER=$(date +%s)
 
-            npm run pre-deploy
-            chmod +x ./check_app_size.sh
-            ./check_app_size.sh
+      #     mkdir -p public
+      #     echo "{\"BUILD_ID\": \"$BUILD_NUMBER\"}" > "public/config.json"
+      #   shell: bash
+          
+      # - name: Deploy
+      #   uses: cloudflare/wrangler-action@v3
+      #   with:
+      #     apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
+      #     accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
+      #     command: deploy
+      #     packageManager: npm
+      #     environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
+      #     preCommands: |
+      #       # Read the list of secrets from the previous step's output and set them
+      #       echo "DEBUG: prepare_env output:"
+      #       echo "${{steps.prepare_env.outputs.SECRETS}}"
+      #       secrets="${{steps.prepare_env.outputs.SECRETS}}"
+      #       echo "Length: ${#secrets}"
+      #       OLD_IFS=$IFS
+      #       IFS=';'
+      #       for pair in $secrets; do
+      #           SECRET_KEY=${pair%%=*}    # Everything before '='
+      #           SECRET_VALUE=${pair#*=}   # Everything after '='
+      #           echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
+      #       done
+      #       IFS=$OLD_IFS
+      #       echo "✅ Secrets set."
+
+      #       npm run pre-deploy
+      #       chmod +x ./check_app_size.sh
+      #       ./check_app_size.sh
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
