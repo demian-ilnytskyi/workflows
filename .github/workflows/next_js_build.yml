@@ -79,6 +79,13 @@ jobs:
           echo "SECRETS=${secrets}" >> $GITHUB_OUTPUT
         shell: bash
 
+      - name: Test
+        run: |
+          echo "DEBUG: prepare_env output:"
+          echo "${{steps.prepare_env.outputs.SECRETS}}"
+          secrets="${{steps.prepare_env.outputs.SECRETS}}"
+          echo "Length: ${#secrets}"
+        shell: bash
       # - name: Set Build Number
       #   run: |
       #     BUILD_NUMBER=$(date +%s)
