@@ -95,22 +95,36 @@ jobs:
           packageManager: npm
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
           preCommands: |
-            #!/bin/bash
+            # Assign the output to a variable for clarity
+            secrets_to_set="${{ steps.prepare_env.outputs.SECRETS }}"
 
-            # Read the list of secrets from the previous step's output and set them
-            echo "DEBUG: prepare_env output:"
-            echo "${{steps.prepare_env.outputs.SECRETS}}"
-            secrets="${{steps.prepare_env.outputs.SECRETS}}"
-            echo "Length: ${#secrets}"
-            OLD_IFS=$IFS
-            IFS=';'
-            for pair in $secrets; do
-                SECRET_KEY=${pair%%=*}    # Everything before '='
-                SECRET_VALUE=${pair#*=}   # Everything after '='
+            # Check if there are any secrets to process. This is a POSIX-compliant check.
+            if [ -z "$secrets_to_set" ]; then
+              echo "No secrets to set. Skipping."
+            else
+              echo "Processing secrets..."
+              # Use a POSIX-compliant loop:
+              # 1. 'echo' the string.
+              # 2. 'tr' replaces the semicolon delimiter with a newline.
+              # 3. 'while read' processes each line, which is safer than a 'for' loop with word splitting.
+              echo "$secrets_to_set" | tr ';' '\n' | while IFS= read -r pair; do
+                # Skip empty lines that might result from trailing or double semicolons
+                if [ -z "$pair" ]; then
+                  continue
+                fi
+                
+                # Use 'cut' for POSIX-compliant string splitting.
+                SECRET_KEY=$(echo "$pair" | cut -d'=' -f1)
+                # Use 'cut -d'=' -f2-' to get everything *after* the first '='
+                SECRET_VALUE=$(echo "$pair" | cut -d'=' -f2-)
+
+                echo "Setting secret: $SECRET_KEY"
+                # Pipe the value to the command's standard input. This is the safest way
+                # to handle values that might contain special characters or spaces.
                 echo "$SECRET_VALUE" | npx wrangler secret put "$SECRET_KEY"
-            done
-            IFS=$OLD_IFS
-            echo "✅ Secrets set."
+              done
+              echo "✅ Secrets set."
+            fi
 
             npm run pre-deploy
             chmod +x ./check_app_size.sh
