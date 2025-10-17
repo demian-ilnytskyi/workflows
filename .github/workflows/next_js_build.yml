@@ -34,13 +34,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@main
-      - name: Set Up Node.js
-        uses: actions/setup-node@main
-        with:
-          node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
-      - name: 📦 Install Dependencies
-       # npm ci instead of npm install to not overwrite package_lock.json
-        run: npm install
+      # - name: Set Up Node.js
+      #   uses: actions/setup-node@main
+      #   with:
+      #     node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
+      # - name: 📦 Install Dependencies
+      #  # npm ci instead of npm install to not overwrite package_lock.json
+      #   run: npm install
 
       - name: Set env
         id: prepare_env # An ID is required to reference its output
@@ -78,18 +78,18 @@ jobs:
           echo "{\"BUILD_ID\": \"$BUILD_NUMBER\"}" > "public/config.json"
         shell: bash
           
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
-          accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
-          command: deploy
-          packageManager: npm
-          environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
-          preCommands: |
-            npm run pre-deploy
-            chmod +x ./check_app_size.sh
-            ./check_app_size.sh
+      # - name: Deploy
+      #   uses: cloudflare/wrangler-action@v3
+      #   with:
+      #     apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
+      #     accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
+      #     command: deploy
+      #     packageManager: npm
+      #     environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
+      #     preCommands: |
+      #       npm run pre-deploy
+      #       chmod +x ./check_app_size.sh
+      #       ./check_app_size.sh
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
