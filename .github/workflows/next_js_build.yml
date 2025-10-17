@@ -63,7 +63,7 @@ jobs:
                   echo "✅ Added public var: $env_var"
                 else
                   echo "✅ Added secret: $env_var"
-                  echo "$secret_value" | npx wrangler secret put "$env_var"
+                  echo "$secret_value" | npx wrangler secret put "$env_var" ${{ inputs.FLAVOUR != 'production' && format('--env {0}', inputs.FLAVOUR) || '' }}
                 fi
               fi
             fi
