@@ -105,7 +105,7 @@ jobs:
           command: deploy
           packageManager: npm
           environment: ${{ inputs.FLAVOUR }}
-          preCommands: npm run pre-deploy --env ${{inputs.FLAVOUR}} && chmod +x ./check_app_size.sh && ./check_app_size.sh
+          preCommands: npm run pre-deploy-${{inputs.FLAVOUR}} && chmod +x ./check_app_size.sh && ./check_app_size.sh
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
