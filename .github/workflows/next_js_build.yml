@@ -38,10 +38,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@main
-      - name: Set Up Node.js
-        uses: actions/setup-node@main
         with:
-          node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
           # See here for caching with `yarn`, `bun` or other package managers https://github.com/actions/cache/blob/main/examples.md or you can leverage caching with actions/setup-node https://github.com/actions/setup-node
           path: |
             ~/.npm
@@ -51,7 +48,11 @@ jobs:
           # If source files changed but packages didn't, rebuild from a prior cache.
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-
-              
+      - name: Set Up Node.js
+        uses: actions/setup-node@main
+        with:
+          node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
+
       - name: 📦 Install Dependencies
        # npm ci instead of npm install to not overwrite package_lock.json
         run: npm install
