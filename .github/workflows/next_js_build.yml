@@ -80,7 +80,7 @@ jobs:
                   echo "⚙️  Added excluded var as env: $env_var"
                 else
                   echo "✅ Added secret: $env_var"
-                  echo "$secret_value" | npx wrangler secret put "$env_var" ${{ inputs.FLAVOUR != 'production' && format('--env {0}', inputs.FLAVOUR) || '' }}
+                  echo "$secret_value" | npx wrangler secret put "$env_var" --env ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '""' }}
                 fi
               fi
             fi
@@ -104,7 +104,7 @@ jobs:
           accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
           command: deploy
           packageManager: npm
-          environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
+          environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '""' }}
           preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
