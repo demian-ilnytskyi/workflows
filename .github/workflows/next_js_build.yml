@@ -69,6 +69,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{secrets.CLOUDFLARE_API_TOKEN}}
           CLOUDFLARE_ACCOUNT_ID: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
         run: |
+          echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
+          if [[ "${{inputs.FLAVOUR}}" != "production" ]]; then
+            echo "NEXTJS_ENV=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
+          fi
+
           mapfile -t EXCLUDE_LIST <<< "${{ inputs.set_as_env }}"
 
           is_excluded() {
@@ -101,9 +106,6 @@ jobs:
               fi
             fi
           done <<< "${{ inputs.secrets_map }}" # <-- The key change is here
-
-          echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
-          echo "NEXTJS_ENV=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
         shell: bash
 
       - name: Set Build Number
