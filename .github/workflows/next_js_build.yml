@@ -103,6 +103,7 @@ jobs:
           done <<< "${{ inputs.secrets_map }}" # <-- The key change is here
 
           echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
+          echo "NEXTJS_ENV=${{ inputs.FLAVOUR }}" >> $GITHUB_ENV
         shell: bash
 
       - name: Set Build Number
