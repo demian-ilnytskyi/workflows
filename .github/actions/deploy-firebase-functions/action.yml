@@ -1,0 +1,81 @@
+name: Deploy Firebase Functions
+description: Compiles and deploys Firebase Functions, optionally force-deleting functions removed from source.
+inputs:
+  firebase_token:
+    required: false
+    default: ''
+  firebase_project_id:
+    required: false
+    default: ''
+  force_delete:
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        FIREBASE_TOKEN: ${{ inputs.firebase_token }}
+        FIREBASE_PROJECT_ID: ${{ inputs.firebase_project_id }}
+      run: |
+        # COLORING
+        GREEN='\033[0;32m'
+        BLUE='\033[0;34m'
+        RED='\033[0;31m'
+        NC='\033[0m'
+
+        PROJECT_ID="${FIREBASE_PROJECT_ID}"
+
+        if [[ -z "$PROJECT_ID" ]]; then
+          RC_FILE=".firebaserc"
+          [[ ! -f "$RC_FILE" ]] && RC_FILE="firebase/.firebaserc"
+          [[ ! -f "$RC_FILE" ]] && RC_FILE="../.firebaserc"
+
+          if [[ -f "$RC_FILE" ]]; then
+            PROJECT_ID=$(grep '"default":' "$RC_FILE" | cut -d'"' -f4)
+          fi
+        fi
+
+        if [[ -z "$PROJECT_ID" ]]; then
+          echo -e "${RED}❌ Project ID not found. Set FIREBASE_PROJECT_ID or configure .firebaserc${NC}"
+          exit 1
+        fi
+
+        ACTUAL_FORCE_DELETE="${{ inputs.force_delete }}"
+        echo -e "${BLUE}🚀 Starting Firebase Functions deployment for $PROJECT_ID...${NC}"
+
+        if [ -d "firebase/functions" ]; then
+          cd firebase/functions
+        elif [ -d "functions" ]; then
+          cd functions
+        fi
+
+        if [ -f "tsconfig.json" ]; then
+          echo -e "   • Compiling TypeScript (npx tsc)..."
+          npx tsc
+        fi
+
+        if [[ "$ACTUAL_FORCE_DELETE" == "true" ]]; then
+          echo -e "   • Deploying with ${BLUE}FORCE DELETE${NC} enabled..."
+          (set +x; firebase deploy --only functions --project "$PROJECT_ID" --force ${FIREBASE_TOKEN:+--token "$FIREBASE_TOKEN"})
+        else
+          echo -e "   • Deploying ${BLUE}WITHOUT deleting${NC} existing remote functions (using 'expect' to answer NO)..."
+          expect <<EOF
+            set timeout 1800
+            log_user 0
+            spawn firebase deploy --only functions --project $PROJECT_ID ${FIREBASE_TOKEN:+--token "$FIREBASE_TOKEN"}
+            log_user 1
+            expect {
+              "Would you like to proceed with deletion?" {
+                send "n\r"
+                exp_continue
+              }
+              "Error:" {
+                exit 1
+              }
+              eof
+            }
+        EOF
+        fi
+
+        echo -e "\n${GREEN}✅ Functions deployment process finished!${NC}"

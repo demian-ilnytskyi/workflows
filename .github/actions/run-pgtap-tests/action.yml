@@ -1,0 +1,47 @@
+name: Run pgTAP Database Tests
+description: Runs pgTAP tests found under supabase/tests against the running database container.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        TESTS_DIR="supabase/tests"
+        CONTAINER_NAME="supabase-test-db"
+        if [ -d "$TESTS_DIR" ] && [ -n "$(find "$TESTS_DIR" -name "*.sql" 2>/dev/null)" ]; then
+            # Setup plpgsql_check profiler (done here, after linting, so supabase db lint is unaffected)
+            docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -c "CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION IF NOT EXISTS plpgsql_check WITH SCHEMA extensions; ALTER DATABASE postgres SET plpgsql_check.profiler = on;" || true
+            # Reset profiler before running tests
+            docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -c "SELECT extensions.plpgsql_profiler_reset_all();" >/dev/null 2>&1 || true
+            echo "Running pgTAP tests..."
+            TEST_FILES=$(find "$TESTS_DIR" -name "*.sql" | sort)
+            ERRORS=0
+            FAILED_TESTS=()
+            for FILE in $TEST_FILES; do
+                echo "--------------------------------------------------"
+                echo "Running $(basename "$FILE")"
+                set +e
+                OUTPUT=$(docker exec -i -e PGOPTIONS="-c search_path=public,extensions -c plpgsql_check.profiler=on" "$CONTAINER_NAME" psql -U postgres -d postgres 2>&1 < "$FILE")
+                EXIT_CODE=$?
+                set -e
+                echo "$OUTPUT"
+                if [ $EXIT_CODE -ne 0 ] || echo "$OUTPUT" | grep -qE "not ok [0-9]+"; then
+                    ERRORS=$((ERRORS + 1))
+                    FAILED_TESTS+=("$(basename "$FILE")")
+                    echo ""
+                    echo "❌ Failed assertions in $(basename "$FILE"):"
+                    echo "$OUTPUT" | grep -E "not ok [0-9]+|# Failed test|#[[:space:]]+(have|want):" || true
+                fi
+            done
+
+            if [ "$ERRORS" -eq 0 ]; then
+                echo -e "\n\033[0;32mALL DATABASE TESTS PASSED!\033[0m"
+            else
+                echo -e "\n\033[0;31mDATABASE TESTS FAILED WITH $ERRORS ERROR(S).\033[0m"
+                echo ""
+                echo "Failed test files:"
+                for f in "${FAILED_TESTS[@]}"; do echo "  ❌ $f"; done
+                exit 1
+            fi
+        else
+            echo "No database tests found. Skipping."
+        fi

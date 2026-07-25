@@ -1,0 +1,182 @@
+name: Run Database Statement Coverage Check
+description: Profiles public plpgsql functions via plpgsql_check and fails CI if statement coverage is below the minimum threshold.
+inputs:
+  min_coverage:
+    required: false
+    default: '50'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        CONTAINER_NAME="supabase-test-db"
+        TESTS_DIR="supabase/tests"
+        MIN_COV="${{ inputs.min_coverage }}"
+
+        if [ -d "$TESTS_DIR" ] && [ -n "$(find "$TESTS_DIR" -name "*.sql" 2>/dev/null)" ]; then
+
+            _wait_for_db() {
+              for ((i=1; i<=30; i++)); do
+                if docker exec "$CONTAINER_NAME" pg_isready -U postgres > /dev/null 2>&1; then return 0; fi
+                sleep 1
+              done
+              return 1
+            }
+
+            # Fetch user-defined public plpgsql functions (oid|name).
+            # Extension functions (pgtap, plpgsql_check, etc.) are excluded via pg_depend so
+            # they are never passed to plpgsql_profiler_function_statements_tb, which is
+            # known to crash the PostgreSQL server on certain extension-provided plpgsql bodies.
+            FUNCTIONS_RAW=$(docker exec -i "$CONTAINER_NAME" psql -U postgres -d postgres -t -A -c \
+              "SELECT p.oid::text || '|' || p.proname
+               FROM pg_catalog.pg_proc p
+               JOIN pg_catalog.pg_namespace n ON p.pronamespace = n.oid
+               JOIN pg_catalog.pg_language l ON p.prolang = l.oid
+               WHERE n.nspname = 'public'
+                 AND l.lanname = 'plpgsql'
+                 AND p.prorettype <> 'trigger'::regtype
+                 AND p.prorettype <> 'event_trigger'::regtype
+                 AND p.proname <> 'current_user_id'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_depend d
+                   WHERE d.objid = p.oid AND d.deptype = 'e'
+                 )
+               ORDER BY p.proname;" 2>&1)
+
+            if [ $? -ne 0 ]; then
+              echo "❌ Error: Could not retrieve function list for coverage check."
+              echo "$FUNCTIONS_RAW"
+              exit 1
+            fi
+
+            TOTAL_STMTS=0
+            TOTAL_COVERED=0
+            FUNC_RESULTS=()
+            SKIPPED_FUNCS=()
+            DATA_LOST=false
+
+            # Profile each function individually so a single crash does not abort all coverage
+            while IFS='|' read -r fn_oid fn_name; do
+              [ -z "$fn_oid" ] && continue
+
+              if [ "$DATA_LOST" = true ]; then
+                # After a server crash the shared-memory profiler store is wiped on restart,
+                # so any remaining functions will have no data. Record them as skipped.
+                SKIPPED_FUNCS+=("$fn_name (profiler data lost due to earlier server crash)")
+                continue
+              fi
+
+              FN_JSON=$(docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -t -A -c \
+                "SELECT row_to_json(r) FROM (
+                   SELECT
+                     COUNT(lineno)::integer AS total,
+                     COUNT(CASE WHEN exec_stmts > 0 THEN 1 END)::integer AS covered,
+                     COALESCE(
+                       json_agg(json_build_object('lineno', lineno, 'stmtname', stmtname) ORDER BY lineno)
+                       FILTER (WHERE exec_stmts = 0),
+                       '[]'::json
+                     ) AS uncovered_lines
+                   FROM extensions.plpgsql_profiler_function_statements_tb($fn_oid)
+                 ) r;" 2>/dev/null)
+
+              if [ $? -ne 0 ] || [ -z "$FN_JSON" ]; then
+                if ! docker exec "$CONTAINER_NAME" pg_isready -U postgres > /dev/null 2>&1; then
+                  echo "⚠️  plpgsql_check profiler crashed on '$fn_name', restarting container..."
+                  docker restart "$CONTAINER_NAME" > /dev/null
+                  _wait_for_db || { echo "❌ Failed to restart database container after profiler crash"; exit 1; }
+                  DATA_LOST=true
+                else
+                  echo "⚠️  Profiler error for '$fn_name', skipping..."
+                fi
+                SKIPPED_FUNCS+=("$fn_name")
+                continue
+              fi
+
+              FN_DATA=$(echo "$FN_JSON" | grep -E '^\{' | head -1)
+              if [ -z "$FN_DATA" ]; then
+                echo "⚠️  Unexpected profiler output for '$fn_name' (no JSON found), skipping..."
+                SKIPPED_FUNCS+=("$fn_name (unexpected profiler output: $(echo "$FN_JSON" | head -1))")
+                continue
+              fi
+
+              TOT=$(echo "$FN_DATA" | jq -r '.total // 0')
+              COV=$(echo "$FN_DATA" | jq -r '.covered // 0')
+              UNCOV=$(echo "$FN_DATA" | jq -c '.uncovered_lines // []')
+
+              PCT=100
+              [ "$TOT" -gt 0 ] && PCT=$(( (COV * 100) / TOT ))
+
+              FUNC_RESULTS+=("{\"name\":\"$fn_name\",\"total\":$TOT,\"covered\":$COV,\"pct\":$PCT,\"uncovered_lines\":$UNCOV}")
+              TOTAL_STMTS=$(( TOTAL_STMTS + TOT ))
+              TOTAL_COVERED=$(( TOTAL_COVERED + COV ))
+
+            done <<< "$FUNCTIONS_RAW"
+
+            # Assemble final JSON from collected per-function results
+            FUNCS_JSON="["
+            FIRST=true
+            for entry in "${FUNC_RESULTS[@]}"; do
+              [ "$FIRST" = true ] && FUNCS_JSON+="$entry" || FUNCS_JSON+=",$entry"
+              FIRST=false
+            done
+            FUNCS_JSON+="]"
+            COVERAGE_JSON="{\"functions\":$FUNCS_JSON}"
+
+            if [ "$TOTAL_STMTS" -gt 0 ]; then
+              OVERALL_PCT=$(( (TOTAL_COVERED * 100) / TOTAL_STMTS ))
+            else
+              OVERALL_PCT=100
+            fi
+
+            echo "========================================================================="
+            echo "📊 PL/pgSQL Statement-Level Code Coverage Report (Database)"
+            echo "========================================================================="
+            printf "%-42s | %-5s | %-7s | %-10s\n" "Function Name" "Total" "Covered" "Coverage %"
+            echo "-------------------------------------------------------------------------"
+            echo "$COVERAGE_JSON" | jq -r '(.functions // []) | sort_by(.name)[] | [.name, (.total|tostring), (.covered|tostring), ((.pct|tostring) + "%")] | @tsv' | \
+              while IFS=$'\t' read -r name total covered pct; do
+                printf "%-42s | %-5s | %-7s | %s\n" "$name" "$total" "$covered" "$pct"
+              done
+            echo "-------------------------------------------------------------------------"
+            printf "%-42s | %-5s | %-7s | %s%%\n" "Total" "$TOTAL_STMTS" "$TOTAL_COVERED" "$OVERALL_PCT"
+            echo "========================================================================="
+
+            if [ ${#SKIPPED_FUNCS[@]} -gt 0 ]; then
+              echo ""
+              echo "⚠️  The following functions could not be profiled (plpgsql_check crash or error):"
+              for fn in "${SKIPPED_FUNCS[@]}"; do
+                echo "  - $fn"
+              done
+              [ "$DATA_LOST" = true ] && echo "  Coverage results above cover only functions profiled before the crash."
+            fi
+
+            echo ""
+            echo "⚠️  Improvements Required (Uncovered lines):"
+            HAS_UNCOVERED=false
+            while IFS= read -r func_name; do
+              UNCOVERED=$(echo "$COVERAGE_JSON" | jq -r --arg fn "$func_name" \
+                '(.functions // []) | .[] | select(.name == $fn) | .uncovered_lines // [] | .[] | "  - Line \(.lineno): \(.stmtname)"')
+              if [ -n "$UNCOVERED" ]; then
+                HAS_UNCOVERED=true
+                echo ""
+                echo "🔹 $func_name:"
+                echo "$UNCOVERED"
+              fi
+            done < <(echo "$COVERAGE_JSON" | jq -r '(.functions // []) | sort_by(.name)[].name')
+
+            if [ "$HAS_UNCOVERED" = false ]; then
+              echo "  None! All lines in all functions are fully tested."
+            fi
+
+            if [ "$OVERALL_PCT" -lt "$MIN_COV" ]; then
+              echo ""
+              echo "❌ Database test statement coverage check failed!"
+              echo "Current statement coverage (${OVERALL_PCT}%) is below the minimum threshold of ${MIN_COV}%."
+              exit 1
+            else
+              echo ""
+              echo "✅ Success! Statement coverage is at ${OVERALL_PCT}% (minimum required is ${MIN_COV}%)."
+            fi
+        else
+            echo "No database tests found. Skipping coverage check."
+        fi

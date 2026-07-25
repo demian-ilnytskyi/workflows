@@ -1,0 +1,132 @@
+name: Start Supabase Database
+description: Starts a local Postgres container, applies migrations and custom schema files.
+inputs:
+  DATABASE_DIR:
+    required: false
+    default: 'supabase/data-base'
+  MIGRATIONS_DIR:
+    required: false
+    default: 'supabase/migrations'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        DATABASE_DIR="${{ inputs.DATABASE_DIR }}"
+        MIGRATIONS_DIR="${{ inputs.MIGRATIONS_DIR }}"
+        TESTS_DIR="supabase/tests"
+        CONTAINER_NAME="supabase-test-db"
+
+        echo "Starting PostgreSQL container..."
+        docker run -p 54322:5432 --name "$CONTAINER_NAME" --rm -d -e POSTGRES_PASSWORD=postgres postgres:15 > /dev/null
+
+        echo -n "Waiting for database to initialize... "
+        MAX_WAIT=30
+        for ((i=1; i<=MAX_WAIT; i++)); do
+            if docker exec "$CONTAINER_NAME" pg_isready -U postgres > /dev/null 2>&1; then break; fi
+            sleep 1
+            if [ $i -eq $MAX_WAIT ]; then echo "Failed to start database."; exit 1; fi
+        done
+        echo "Ready."
+
+        # Determine what to install
+        INSTALL_PACKAGES=""
+        HAS_MIGRATIONS=false
+        if [ -d "$MIGRATIONS_DIR" ] && [ -n "$(find "$MIGRATIONS_DIR" -name "*.sql" 2>/dev/null)" ]; then
+            HAS_MIGRATIONS=true
+            INSTALL_PACKAGES="$INSTALL_PACKAGES postgresql-15-plpgsql-check"
+        fi
+
+        HAS_TESTS=false
+        if [ -d "$TESTS_DIR" ] && [ -n "$(find "$TESTS_DIR" -name "*.sql" 2>/dev/null)" ]; then
+            HAS_TESTS=true
+            INSTALL_PACKAGES="$INSTALL_PACKAGES postgresql-15-pgtap"
+        fi
+
+        if [ -n "$INSTALL_PACKAGES" ]; then
+            echo "Installing extensions ($INSTALL_PACKAGES)..."
+            docker exec "$CONTAINER_NAME" sh -c "apt-get update -qq && apt-get install -y -qq $INSTALL_PACKAGES > /dev/null 2>&1"
+        fi
+
+        if [ "$HAS_MIGRATIONS" = true ]; then
+            # Configure plpgsql_check in shared_preload_libraries so profiler hooks are active from server start
+            echo "Configuring plpgsql_check shared_preload_libraries..."
+            docker exec "$CONTAINER_NAME" psql -U postgres -c "ALTER SYSTEM SET shared_preload_libraries = 'plpgsql_check';" > /dev/null
+            docker restart "$CONTAINER_NAME" > /dev/null
+
+            echo -n "Waiting for database to restart... "
+            MAX_WAIT=30
+            for ((i=1; i<=MAX_WAIT; i++)); do
+                if docker exec "$CONTAINER_NAME" pg_isready -U postgres > /dev/null 2>&1; then break; fi
+                sleep 1
+                if [ $i -eq $MAX_WAIT ]; then echo "Failed to restart database."; exit 1; fi
+            done
+            echo "Ready."
+        fi
+
+        if [ "$HAS_TESTS" = true ]; then
+            docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -c "CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION IF NOT EXISTS pgtap SCHEMA extensions;" > /dev/null
+        fi
+
+        if [ "$HAS_MIGRATIONS" = true ]; then
+            echo "Applying and validating migrations..."
+            FILES=$(find "$MIGRATIONS_DIR" -name "*.sql" | sort)
+            for FILE in $FILES; do
+                echo "  -> Applying $(basename "$FILE")... "
+                # Using ON_ERROR_STOP=1 so any migration syntax/runtime error will fail GHA immediately
+                docker exec -i "$CONTAINER_NAME" psql -q -U postgres -d postgres -v ON_ERROR_STOP=1 < "$FILE"
+            done
+        fi
+
+        # Apply custom schema files from data-base folder recursively
+        if [ -d "$DATABASE_DIR" ]; then
+            echo "Applying custom schema files from data-base recursively..."
+
+            APPLIED_FILES=" "
+
+            process_path_ci() {
+                local target="$1"
+
+                if [ -f "$target" ]; then
+                    if [[ "$target" == *.sql ]]; then
+                        if [[ "$APPLIED_FILES" != *" $target "* ]]; then
+                            echo "  -> Applying $(basename "$target")..."
+                            docker exec -i "$CONTAINER_NAME" psql -q -U postgres -d postgres -v ON_ERROR_STOP=1 < "$target"
+                            APPLIED_FILES="$APPLIED_FILES$target "
+                        fi
+                    fi
+                elif [ -d "$target" ]; then
+                    local order_file="$target/order.txt"
+                    local local_applied=" "
+
+                    # 1. Process items listed in order.txt first
+                    if [ -f "$order_file" ]; then
+                        while IFS= read -r line || [ -n "$line" ]; do
+                            line=$(echo "$line" | tr -d '\r' | xargs)
+                            if [ -n "$line" ] && [ ! "${line:0:1}" = "#" ]; then
+                                local item_path="$target/$line"
+                                if [ -e "$item_path" ]; then
+                                    process_path_ci "$item_path"
+                                    local_applied="$local_applied$line "
+                                fi
+                            fi
+                        done < "$order_file"
+                    fi
+
+                    # 2. Process all other items in alphabetical order
+                    local items
+                    items=$(find "$target" -mindepth 1 -maxdepth 1 | sort)
+                    for item in $items; do
+                        if [ -e "$item" ]; then
+                            local basename_item
+                            basename_item=$(basename "$item")
+                            if [ "$basename_item" != "order.txt" ] && [[ "$local_applied" != *" $basename_item "* ]]; then
+                                process_path_ci "$item"
+                            fi
+                        fi
+                    done
+                fi
+            }
+
+            process_path_ci "$DATABASE_DIR"
+        fi

@@ -1,0 +1,304 @@
+name: Run Supabase Security Advisor Linter
+description: Builds and executes the splinter.sql-based security advisor query against the running database container, failing CI on unresolved security lints.
+inputs:
+  include_anon:
+    required: false
+    default: 'true'
+  service_functions_file:
+    required: false
+    default: 'supabase/migrations/service_functions.txt'
+  definer_functions_file:
+    required: false
+    default: 'supabase/migrations/definer_functions.txt'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        # Verify dependencies
+        if ! command -v jq &> /dev/null; then
+          echo "Error: 'jq' utility is not installed! Please install jq to run this linter."
+          exit 1
+        fi
+
+        echo "=== Executing Supabase Database Linter ==="
+        QUERY_BODY=$(tail -n +3 scripts/splinter.sql)
+
+        # Load service-only functions list (no anon grant required)
+        INCLUDE_ANON="${{ inputs.include_anon }}"
+        SERVICE_FUNCTIONS_LIST=""
+        SERVICE_FUNCTIONS_FILE="${{ inputs.service_functions_file }}"
+        if [ -f "$SERVICE_FUNCTIONS_FILE" ]; then
+          SERVICE_FUNCTIONS_LIST=$(cat "$SERVICE_FUNCTIONS_FILE" | tr -d '\n' | sed 's/[[:space:]]*,[[:space:]]*/,/g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+        fi
+
+        # Load allowed SECURITY DEFINER functions list
+        DEFINER_FUNCTIONS_LIST=""
+        DEFINER_FUNCTIONS_FILE="${{ inputs.definer_functions_file }}"
+        if [ -f "$DEFINER_FUNCTIONS_FILE" ]; then
+          DEFINER_FUNCTIONS_LIST=$(cat "$DEFINER_FUNCTIONS_FILE" | tr -d '\n' | sed 's/[[:space:]]*,[[:space:]]*/,/g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+        fi
+
+        # Append security checks to the linter query body
+        SECURITY_CHECKS_QUERY="
+        UNION ALL
+        (
+        WITH allowed_definer_functions AS (
+            SELECT trim(unnest(string_to_array('$DEFINER_FUNCTIONS_LIST', ','))) AS fname
+        )
+        SELECT
+            'security_definer_function' as name,
+            'Security Definer Function' as title,
+            'ERROR' as level,
+            'EXTERNAL' as facing,
+            array['SECURITY'] as categories,
+            'Detects functions defined with the SECURITY DEFINER property. Functions should use SECURITY INVOKER instead to respect RLS policies.' as description,
+            format(
+                'Function \`%s.%s(%s)\` is defined with the SECURITY DEFINER property',
+                n.nspname,
+                p.proname,
+                pg_catalog.pg_get_function_identity_arguments(p.oid)
+            ) as detail,
+            'https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable' as remediation,
+            jsonb_build_object(
+                'schema', n.nspname,
+                'name', p.proname,
+                'arguments', pg_catalog.pg_get_function_identity_arguments(p.oid),
+                'language', l.lanname,
+                'security_definer', true,
+                'type', 'function'
+            ) as metadata,
+            format(
+                'security_definer_function_%s_%s_%s',
+                n.nspname,
+                p.proname,
+                pg_catalog.pg_get_function_identity_arguments(p.oid)
+            ) as cache_key
+        FROM
+            pg_catalog.pg_proc p
+            JOIN pg_catalog.pg_namespace n
+                ON p.pronamespace = n.oid
+            JOIN pg_catalog.pg_language l
+                ON p.prolang = l.oid
+        WHERE
+            p.prosecdef = true
+            AND n.nspname = ANY(ARRAY(SELECT trim(unnest(string_to_array(current_setting('pgrst.db_schemas', 't'), ',')))))
+            AND n.nspname NOT IN (
+                '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_config', '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql', 'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga', 'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog', 'realtime', 'repack', 'storage', 'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
+            )
+            AND NOT EXISTS (SELECT 1 FROM allowed_definer_functions WHERE fname = p.proname)
+        )
+        UNION ALL
+        (
+        SELECT
+            'rls_disabled' as name,
+            'Row Level Security Disabled' as title,
+            'ERROR' as level,
+            'EXTERNAL' as facing,
+            array['SECURITY'] as categories,
+            'Detects cases where row level security (RLS) has not been enabled on tables in exposed schemas.' as description,
+            format(
+                'Table \`%s.%s\` does not have Row Level Security (RLS) enabled',
+                n.nspname,
+                c.relname
+            ) as detail,
+            'https://supabase.com/docs/guides/database/postgres/row-level-security' as remediation,
+            jsonb_build_object(
+                'schema', n.nspname,
+                'name', c.relname,
+                'type', 'table'
+            ) as metadata,
+            format(
+                'rls_disabled_%s_%s',
+                n.nspname,
+                c.relname
+            ) as cache_key
+        FROM
+            pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n
+                ON c.relnamespace = n.oid
+            LEFT JOIN pg_catalog.pg_depend dep
+                ON c.oid = dep.objid
+                AND dep.deptype = 'e'
+        WHERE
+            c.relkind = 'r'
+            AND NOT c.relrowsecurity
+            AND n.nspname = ANY(ARRAY(SELECT trim(unnest(string_to_array(current_setting('pgrst.db_schemas', 't'), ',')))))
+            AND n.nspname NOT IN (
+                '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_config', '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql', 'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga', 'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog', 'realtime', 'repack', 'storage', 'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
+            )
+            AND dep.objid IS NULL
+        )
+        UNION ALL
+        (
+        SELECT
+            'function_returns_jsonb_using_table' as name,
+            'Function Returns JSONB and Uses Table' as title,
+            'ERROR' as level,
+            'EXTERNAL' as facing,
+            array['SECURITY'] as categories,
+            'Detects functions in public schemas that return jsonb and reference tables.' as description,
+            format(
+                'Function \`%s.%s(%s)\` returns jsonb and references table \`%s\`',
+                n.nspname,
+                p.proname,
+                pg_catalog.pg_get_function_identity_arguments(p.oid),
+                t.relname
+            ) as detail,
+            'https://supabase.com/docs/guides/database/postgres/row-level-security' as remediation,
+            jsonb_build_object(
+                'schema', n.nspname,
+                'name', p.proname,
+                'arguments', pg_catalog.pg_get_function_identity_arguments(p.oid),
+                'table', t.relname,
+                'type', 'function'
+            ) as metadata,
+            format(
+                'function_returns_jsonb_using_table_%s_%s_%s',
+                n.nspname,
+                p.proname,
+                t.relname
+            ) as cache_key
+        FROM
+            pg_catalog.pg_proc p
+            JOIN pg_catalog.pg_namespace n ON p.pronamespace = n.oid
+            CROSS JOIN LATERAL (
+                SELECT c.relname
+                FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace tn ON c.relnamespace = tn.oid
+                WHERE c.relkind = 'r'
+                  AND tn.nspname = 'public'
+                  AND p.prosrc ~* concat('\y', c.relname, '\y')
+            ) t
+        WHERE
+            p.prorettype = 'jsonb'::regtype
+            AND n.nspname = 'public'
+            AND n.nspname NOT IN (
+                '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_config', '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql', 'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga', 'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog', 'realtime', 'repack', 'storage', 'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
+            )
+        )
+        UNION ALL
+        (
+        WITH service_only_functions AS (
+            SELECT trim(unnest(string_to_array('$SERVICE_FUNCTIONS_LIST', ','))) AS fname
+        )
+        SELECT
+            'rpc_missing_explicit_grants' as name,
+            'RPC Function Missing Explicit Grants' as title,
+            'ERROR' as level,
+            'EXTERNAL' as facing,
+            array['SECURITY'] as categories,
+            'Detects public schema functions that lack explicit GRANT EXECUTE for required roles, or that still have the dangerous default PUBLIC grant.' as description,
+            format(
+                'Function \`public.%s(%s)\`%s%s',
+                p.proname,
+                pg_catalog.pg_get_function_identity_arguments(p.oid),
+        CASE WHEN array_length(ARRAY(
+              SELECT r FROM unnest(
+                  CASE WHEN '$INCLUDE_ANON' = 'false'
+                            THEN ARRAY['authenticated','service_role']
+                            WHEN EXISTS (SELECT 1 FROM service_only_functions WHERE fname = p.proname)
+                            THEN ARRAY['service_role']
+                            ELSE ARRAY['anon','authenticated','service_role']
+                  END
+              ) AS r
+              WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = r)
+                AND NOT has_function_privilege(r, p.oid, 'EXECUTE')
+           ), 1) > 0
+           THEN ' is missing explicit GRANT EXECUTE for: ' || array_to_string(ARRAY(
+              SELECT r FROM unnest(
+                  CASE WHEN '$INCLUDE_ANON' = 'false'
+                            THEN ARRAY['authenticated','service_role']
+                            WHEN EXISTS (SELECT 1 FROM service_only_functions WHERE fname = p.proname)
+                            THEN ARRAY['service_role']
+                            ELSE ARRAY['anon','authenticated','service_role']
+                  END
+              ) AS r
+              WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = r)
+                AND NOT has_function_privilege(r, p.oid, 'EXECUTE')
+           ), ', ')
+           ELSE '' END,
+                CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon')
+                          AND has_function_privilege('public', p.oid, 'EXECUTE')
+                     THEN ' has dangerous PUBLIC grant (revoke it)'
+                     ELSE '' END
+            ) as detail,
+            'https://supabase.com/docs/guides/database/postgres/row-level-security' as remediation,
+            jsonb_build_object(
+                'schema', 'public',
+                'name', p.proname,
+                'arguments', pg_catalog.pg_get_function_identity_arguments(p.oid),
+                'type', 'function'
+            ) as metadata,
+            format(
+                'rpc_missing_explicit_grants_public_%s_%s',
+                p.proname,
+                pg_catalog.pg_get_function_identity_arguments(p.oid)
+            ) as cache_key
+        FROM
+            pg_catalog.pg_proc p
+            JOIN pg_catalog.pg_namespace n ON p.pronamespace = n.oid
+            JOIN pg_catalog.pg_language l ON p.prolang = l.oid
+        WHERE
+            n.nspname = 'public'
+            AND l.lanname IN ('plpgsql', 'sql')
+            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+            AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon')
+        AND (
+        has_function_privilege('public', p.oid, 'EXECUTE')
+        OR EXISTS (
+          SELECT 1 FROM unnest(
+              CASE WHEN '$INCLUDE_ANON' = 'false'
+                        THEN ARRAY['authenticated','service_role']
+                        WHEN EXISTS (SELECT 1 FROM service_only_functions WHERE fname = p.proname)
+                        THEN ARRAY['service_role']
+                        ELSE ARRAY['anon','authenticated','service_role']
+              END
+          ) AS r
+          WHERE NOT has_function_privilege(r, p.oid, 'EXECUTE')
+        )
+        )
+        )
+        "
+
+        {
+          echo "SET pgrst.db_schemas = 'public';"
+          echo "SET local search_path = '';"
+          echo "SELECT coalesce(json_agg(t), '[]'::json) FROM ("
+          echo "$QUERY_BODY"
+          echo "$SECURITY_CHECKS_QUERY"
+          echo ") t;"
+        } > /tmp/full_query.sql
+
+        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A < /tmp/full_query.sql 2>/dev/null)
+
+        if [ $? -ne 0 ] || [ -z "$RAW_OUTPUT" ]; then
+          echo "Error: Failed to execute database linter query against container!"
+          exit 1
+        fi
+
+        # Parse and filter generated local lints
+        CLEAN_JSON=$(echo "$RAW_OUTPUT" | grep -v -E "^SET|^$" || true)
+        LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>/dev/null)
+
+        if [ -z "$LOCAL_LINTS" ] || [ "$LOCAL_LINTS" = "null" ]; then
+          echo "Error: Failed to parse or execute query JSON output!"
+          echo "Raw stdout: $RAW_OUTPUT"
+          exit 1
+        fi
+
+        # Check if any security lints exist and fail CI if so
+        LINT_COUNT=$(echo "$LOCAL_LINTS" | jq '. | length')
+
+        if [ "$LINT_COUNT" -gt 0 ]; then
+          echo ""
+          echo "❌ Unresolved security lints found ($LINT_COUNT items):"
+          echo "$LOCAL_LINTS" | jq -r '.[] | "  - Name: \(.name) | Cache Key: \(.cache_key // .detail)\n    Detail: \(.detail)"'
+          echo ""
+          echo "❌ Lint check failed! Please fix the security issues listed above."
+          exit 1
+        else
+          echo ""
+          echo "✅ Success! 0 security lints found."
+          exit 0
+        fi

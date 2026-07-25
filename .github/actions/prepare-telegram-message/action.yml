@@ -1,0 +1,78 @@
+name: Prepare Telegram Notification Message
+description: Builds an HTML-formatted Telegram message summarizing a workflow run's status, mapping the triggering GitHub user to their Telegram handle.
+inputs:
+  trigger_actor:
+    required: false
+    default: ''
+  pr_title:
+    required: false
+    default: ''
+  workflow_name:
+    required: true
+  job_status:
+    required: true
+outputs:
+  message:
+    description: 'The prepared HTML message'
+    value: ${{ steps.prepare_msg.outputs.message }}
+runs:
+  using: composite
+  steps:
+    - id: prepare_msg
+      shell: bash
+      env:
+        # Use env vars to prevent script injection issues
+        GH_USER: "${{ inputs.trigger_actor }}"
+        PR_TITLE: "${{ inputs.pr_title }}"
+        WORKFLOW_NAME: "${{ inputs.workflow_name }}"
+        REPO_NAME: "${{ github.event.repository.name }}"
+        BRANCH_NAME: "${{ github.head_ref || github.ref_name }}"
+        JOB_STATUS: "${{ inputs.job_status }}"
+        RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      run: |
+        # 1. Map User
+        case "$GH_USER" in
+          "DemianKryk") TG_USER="@demiankryk" ;;
+          "AndrewKrash") TG_USER="@andriikrash" ;;
+          "mykhailokurochkinwork") TG_USER="@kurochkinmy" ;;
+          "herman-the-worm") TG_USER="@hermankravchenko" ;;
+          "ihor-greb-dev") TG_USER="@IgorGreb" ;;
+          "Oleksii556") TG_USER="@darkius" ;;
+          "oleksandr-mytko-codinghouse") TG_USER="@makedonsky77" ;;
+          *) TG_USER="$GH_USER" ;;
+        esac
+
+        # 2. Function to escape HTML special characters
+        escape_html() {
+          echo "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g'
+        }
+
+        # 3. Escape all variables
+        E_REPO=$(escape_html "$REPO_NAME")
+        E_BRANCH=$(escape_html "$BRANCH_NAME")
+        E_WORKFLOW=$(escape_html "$WORKFLOW_NAME")
+        E_USER=$(escape_html "$TG_USER")
+        E_PR=$(escape_html "$PR_TITLE")
+
+        # 4. Build Status Line
+        if [ "$JOB_STATUS" = "success" ]; then
+          STATUS="<b>✅ Build Successful</b>"
+        else
+          STATUS="<b>❌ Build Failed</b>"
+        fi
+
+        # 5. Construct the final message
+        # We use a heredoc to build the message, then pipe to GITHUB_OUTPUT
+        {
+          echo "message<<EOF"
+          echo "$STATUS"
+          echo "🔹 <b>Repo:</b> $E_REPO"
+          echo "🔹 <b>Branch:</b> $E_BRANCH"
+          echo "🔹 <b>Workflow:</b> $E_WORKFLOW"
+
+          [[ -n "$GH_USER" ]] && echo "👤 <b>User:</b> $E_USER"
+          [[ -n "$PR_TITLE" ]] && echo "📝 <b>PR:</b> $E_PR"
+
+          echo "<a href=\"$RUN_URL\">🔗 View Run Logs</a>"
+          echo "EOF"
+        } >> $GITHUB_OUTPUT

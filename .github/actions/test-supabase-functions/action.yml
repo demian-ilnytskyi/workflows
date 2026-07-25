@@ -1,0 +1,91 @@
+name: Test Supabase Functions with Coverage
+description: Runs Deno tests for Supabase Edge Functions and enforces a minimum per-file and overall line coverage threshold.
+inputs:
+  min_coverage:
+    required: false
+    default: '50'
+  working_directory:
+    required: false
+    default: 'supabase/functions'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        COVERAGE_DIR=".deno_coverage"
+        rm -rf "$COVERAGE_DIR"
+
+        if ! NO_COLOR=1 deno test --no-check --allow-all --node-modules-dir=auto --coverage="$COVERAGE_DIR" .; then
+          echo "❌ Edge function tests failed!"
+          exit 1
+        fi
+
+        COVERAGE_OUTPUT=$(NO_COLOR=1 deno coverage "$COVERAGE_DIR" --exclude='test\.ts$|supabaseMock\.ts$' 2>/dev/null)
+        rm -rf "$COVERAGE_DIR"
+
+        echo "==============================================="
+        echo "📊 Edge Function Coverage Report"
+        echo "==============================================="
+        echo "$COVERAGE_OUTPUT"
+            # Find the field index of 'Line %'
+        LINE_COL_IDX=$(echo "$COVERAGE_OUTPUT" | grep 'File' | awk -F'|' '{
+          for (i=1; i<=NF; i++) {
+            if ($i ~ /Line/) {
+              print i;
+              exit;
+            }
+          }
+        }')
+        if [ -z "$LINE_COL_IDX" ]; then
+          LINE_COL_IDX=4
+        fi
+
+        OVERALL_LINE_PCT=$(echo "$COVERAGE_OUTPUT" | grep 'All files' | awk -F'|' -v col="$LINE_COL_IDX" '{gsub(/[[:space:]]/, "", $col); print int($col)}')
+
+        echo "==============================================="
+        echo "📋 Per-File Coverage Check (Line Coverage)"
+        echo "==============================================="
+        printf "%-45s | %-10s | %s\n" "File" "Line Cov." "Status"
+        printf '%0.s-' {1..70}; echo ""
+
+        MIN_COVERAGE_REQUIRED="${{ inputs.min_coverage }}"
+        ANY_BELOW=false
+        while IFS= read -r line; do
+          [[ "$line" =~ ^\|[[:space:]]+-+ ]] && continue
+          [[ "$line" =~ Branch ]] && continue
+          [[ "$line" =~ All\ files ]] && continue
+          [[ ! "$line" =~ ^\| ]] && continue
+
+          FILE=$(echo "$line" | awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}')
+          LINE_PCT=$(echo "$line" | awk -F'|' -v col="$LINE_COL_IDX" '{gsub(/[[:space:]]/, "", $col); print $col}')
+          LINE_INT=${LINE_PCT%.*}
+
+          if [ -z "$FILE" ] || [ -z "$LINE_INT" ] || ! [[ "$LINE_INT" =~ ^[0-9]+$ ]]; then
+            continue
+          fi
+
+          if [ "$LINE_INT" -lt "$MIN_COVERAGE_REQUIRED" ]; then
+            ANY_BELOW=true
+            printf "%-45s | %-10s | ❌ below %d%%\n" "$FILE" "${LINE_PCT}%" "$MIN_COVERAGE_REQUIRED"
+          else
+            printf "%-45s | %-10s | ✅\n" "$FILE" "${LINE_PCT}%"
+          fi
+        done <<< "$COVERAGE_OUTPUT"
+
+        printf '%0.s-' {1..70}; echo ""
+        printf "%-45s | %s%%\n" "OVERALL" "${OVERALL_LINE_PCT}"
+        echo ""
+
+        if [ -z "$OVERALL_LINE_PCT" ]; then
+          echo "⚠️  Warning: Could not parse overall coverage. Skipping threshold check."
+          exit 0
+        fi
+
+        if [ "$OVERALL_LINE_PCT" -lt "$MIN_COVERAGE_REQUIRED" ]; then
+          echo "❌ Edge function coverage check failed!"
+          echo "Current line coverage (${OVERALL_LINE_PCT}%) is below the minimum threshold of ${MIN_COVERAGE_REQUIRED}%."
+          exit 1
+        else
+          echo "✅ Success! Edge function line coverage is at ${OVERALL_LINE_PCT}% (minimum required is ${MIN_COVERAGE_REQUIRED}%)."
+        fi

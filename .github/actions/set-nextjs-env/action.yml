@@ -1,0 +1,58 @@
+name: Set Next.js Build Env
+description: Maps a secrets_map of ENV_VAR:SECRET_NAME pairs to GitHub env vars or Cloudflare Worker secrets, based on the provided secrets JSON.
+inputs:
+  flavour:
+    required: true
+  secrets_map:
+    required: false
+    default: ''
+  set_as_env:
+    required: false
+    default: ''
+  secrets_json:
+    description: 'toJSON(secrets) from the calling workflow'
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SECRETS_CONTEXT: ${{ inputs.secrets_json }}
+      run: |
+        echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.flavour }}" >> $GITHUB_ENV
+        if [[ "${{ inputs.flavour }}" != "production" ]]; then
+          echo "NEXTJS_ENV=${{ inputs.flavour }}" >> $GITHUB_ENV
+        fi
+
+        mapfile -t EXCLUDE_LIST <<< "${{ inputs.set_as_env }}"
+
+        is_excluded() {
+          local var="$1"
+          for item in "${EXCLUDE_LIST[@]}"; do
+            [[ "$item" == "$var" ]] && return 0
+          done
+          return 1
+        }
+
+        while IFS=':' read -r env_var secret_name; do
+          env_var=$(echo "$env_var" | xargs)
+          secret_name=$(echo "$secret_name" | xargs)
+
+          if [[ -n "$secret_name" && -n "$env_var" ]]; then
+            secret_value=$(echo "$SECRETS_CONTEXT" | jq -r --arg key "$secret_name" '.[$key]')
+
+            if [[ "$secret_value" != "null" && -n "$secret_value" ]]; then
+              # If it's a NEXT_PUBLIC_ variable → add to env (public)
+              if [[ "$env_var" == NEXT_PUBLIC_* ]]; then
+                echo "$env_var=$secret_value" >> "$GITHUB_ENV"
+                echo "✅ Added public var: $env_var"
+              elif is_excluded "$env_var"; then
+                echo "$env_var=$secret_value" >> "$GITHUB_ENV"
+                echo "⚙️  Added excluded var as env: $env_var"
+              else
+                echo "✅ Added secret: $env_var"
+                echo "$secret_value" | npx wrangler secret put "$env_var" ${{ inputs.flavour != 'production' && format('--env {0}', inputs.flavour) || '' }}
+              fi
+            fi
+          fi
+        done <<< "${{ inputs.secrets_map }}"
