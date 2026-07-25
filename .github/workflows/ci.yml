@@ -150,6 +150,11 @@ on:
         required: false
         type: string
         default: 'cloudflare/cms'
+      workflow_working_directory:
+        description: 'Working directory for the workflow project'
+        required: false
+        type: string
+        default: 'cloudflare/workflow'
     secrets:
       ssh_key:
         required: false
@@ -187,7 +192,7 @@ jobs:
               - ${{ inputs.flutter_working_directory == '.' && 'test/**' || format('{0}/test/**', inputs.flutter_working_directory) }}
               - ${{ inputs.flutter_working_directory == '.' && 'pubspec.yaml' || format('{0}/pubspec.yaml', inputs.flutter_working_directory) }}
             workflow:
-              - 'cloudflare/workflow/**'
+              - ${{ inputs.workflow_working_directory == '.' && '**' || format('{0}/**', inputs.workflow_working_directory) }}
             cms:
               - ${{ inputs.cms_working_directory == '.' && 'src/**' || format('{0}/src/**', inputs.cms_working_directory) }}
 
@@ -243,11 +248,11 @@ jobs:
     if: needs.changes.outputs.workflow == 'true' && inputs.workflow_ci == true
     uses: ./.github/workflows/next_js_ci.yml
     with:
-      working_directory: 'cloudflare/workflow'
+      working_directory: ${{ inputs.workflow_working_directory }}
       runs_on: ${{ inputs.runs_on }}
       send_notifications: false
-      tsconfig_path: 'cloudflare/workflow/tsconfig.json'
-      eslint_dir: 'cloudflare/workflow/src'
+      tsconfig_path: ${{ inputs.workflow_working_directory == '.' && 'tsconfig.json' || format('{0}/tsconfig.json', inputs.workflow_working_directory) }}
+      eslint_dir: ${{ inputs.workflow_working_directory == '.' && 'src' || format('{0}/src', inputs.workflow_working_directory) }}
       ignore_patterns: 'public/images'
       name: 'workflow'
       min_coverage: ${{ inputs.workflow_min_coverage }}
