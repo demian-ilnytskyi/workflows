@@ -17,24 +17,84 @@ on:
         required: false
         type: string
         default: "ubuntu-latest"
+      trigger_actor:
+        required: false
+        type: string
+        default: ""
+      pr_title:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   notification:
     timeout-minutes: 3
     runs-on: ${{ inputs.runs_on }}
     steps:
-      - name: Notify on Success
-        if: ${{ inputs.job_status == 'success' }}
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: ${{ format('✅ Build successful for {0} in repository {1}{2}.', inputs.workflow, github.event.repository.name, inputs.dop_text != '' && format(' -------- {0}', inputs.dop_text) || '') }}
+      - name: Prepare Telegram Message
+        id: prepare_msg
+        shell: bash
+        env:
+          # Use env vars to prevent script injection issues
+          GH_USER: "${{ inputs.trigger_actor }}"
+          PR_TITLE: "${{ inputs.pr_title }}"
+          WORKFLOW_NAME: "${{ inputs.workflow }}"
+          REPO_NAME: "${{ github.event.repository.name }}"
+          BRANCH_NAME: "${{ github.head_ref || github.ref_name }}"
+          JOB_STATUS: "${{ inputs.job_status }}"
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: |
+          # 1. Map User
+          case "$GH_USER" in
+            "DemianKryk") TG_USER="@demiankryk" ;;
+            "AndrewKrash") TG_USER="@andriikrash" ;;
+            "mykhailokurochkinwork") TG_USER="@kurochkinmy" ;;
+            "herman-the-worm") TG_USER="@hermankravchenko" ;;
+            "ihor-greb-dev") TG_USER="@IgorGreb" ;;
+            "Oleksii556") TG_USER="@darkius" ;;
+            "oleksandr-mytko-codinghouse") TG_USER="@makedonsky77" ;;
+            *) TG_USER="$GH_USER" ;;
+          esac
 
-      - name: Notify on Failure
-        if: ${{ inputs.job_status == 'failure' }}
+          # 2. Function to escape HTML special characters
+          escape_html() {
+            echo "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g'
+          }
+
+          # 3. Escape all variables
+          E_REPO=$(escape_html "$REPO_NAME")
+          E_BRANCH=$(escape_html "$BRANCH_NAME")
+          E_WORKFLOW=$(escape_html "$WORKFLOW_NAME")
+          E_USER=$(escape_html "$TG_USER")
+          E_PR=$(escape_html "$PR_TITLE")
+
+          # 4. Build Status Line
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATUS="<b>✅ Build Successful</b>"
+          else
+            STATUS="<b>❌ Build Failed</b>"
+          fi
+
+          # 5. Construct the final message
+          # We use a heredoc to build the message, then pipe to GITHUB_OUTPUT
+          {
+            echo "message<<EOF"
+            echo "$STATUS"
+            echo "🔹 <b>Repo:</b> $E_REPO"
+            echo "🔹 <b>Branch:</b> $E_BRANCH"
+            echo "🔹 <b>Workflow:</b> $E_WORKFLOW"
+            
+            [[ -n "$GH_USER" ]] && echo "👤 <b>User:</b> $E_USER"
+            [[ -n "$PR_TITLE" ]] && echo "📝 <b>PR:</b> $E_PR"
+            
+            echo "<a href=\"$RUN_URL\">🔗 View Run Logs</a>"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Send Telegram Notification
         uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: ${{ format('❌ Build failed for {0} in repository {1}{2}.', inputs.workflow, github.event.repository.name, inputs.dop_text != '' && format(' -------- {0}', inputs.dop_text) || '') }}
+          format: html
+          message: ${{ steps.prepare_msg.outputs.message }}
