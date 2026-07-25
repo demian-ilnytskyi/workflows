@@ -279,14 +279,19 @@ runs:
           exit 1
         fi
 
-        # Parse and filter generated local lints
-        CLEAN_JSON=$(echo "$RAW_OUTPUT" | grep -v -E "^SET|^$" || true)
+        # Parse and filter generated local lints (JSON output starts at the first '[' line;
+        # preceding lines are psql SET/WARNING noise)
+        CLEAN_JSON=$(echo "$RAW_OUTPUT" | sed -n '/^\[/,$p')
         LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>&1) || true
 
         if [ -z "$LOCAL_LINTS" ] || echo "$LOCAL_LINTS" | grep -q "^jq:"; then
-          echo "Error: Failed to parse or execute query JSON output!"
-          echo "Raw stdout: $RAW_OUTPUT"
-          echo "jq error: $LOCAL_LINTS"
+          echo "❌ Error: Failed to parse database linter query output!"
+          echo ""
+          echo "── psql/jq error ──────────────────────────────────────"
+          echo "$LOCAL_LINTS"
+          echo ""
+          echo "── Raw query output ───────────────────────────────────"
+          echo "$RAW_OUTPUT"
           exit 1
         fi
 
@@ -295,9 +300,9 @@ runs:
 
         if [ "$LINT_COUNT" -gt 0 ]; then
           echo ""
-          echo "❌ Unresolved security lints found ($LINT_COUNT items):"
-          echo "$LOCAL_LINTS" | jq -r '.[] | "  - Name: \(.name) | Cache Key: \(.cache_key // .detail)\n    Detail: \(.detail)"'
-          echo ""
+          echo "❌ Unresolved security lints found ($LINT_COUNT items)"
+          echo "$LOCAL_LINTS" | jq -r '.[] | "────────────────────────────────────────────────────────\n[\(.level)] \(.title)\n\(.detail)\nRemediation: \(.remediation)\n"'
+          echo "────────────────────────────────────────────────────────"
           echo "❌ Lint check failed! Please fix the security issues listed above."
           exit 1
         else
