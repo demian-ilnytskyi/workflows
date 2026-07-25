@@ -145,11 +145,15 @@ jobs:
           
           sorted_list=$(mktemp)
           sort -t'|' -k2,2n -k1,1 -k5,5 "$temp_list" > "$sorted_list"
-          
+
           declare -A USED_TIMESTAMPS
-          
+
           while IFS='|' read -r mtime prefix ftype src_path basename_f; do
-              current_time="$mtime"
+              # Supabase applies migrations in filename order, so the category
+              # prefix (types < tables < rpcs < triggers) must be baked into the
+              # timestamp itself -- git-derived mtimes alone can't guarantee it
+              # when files across categories are added/committed at different times.
+              current_time="${prefix}${mtime:2:12}"
               while [[ -n "${USED_TIMESTAMPS[$current_time]:-}" ]]; do
                   suffix=$((10#${current_time:8} + 1))
                   current_time="${current_time:0:8}$(printf "%06d" "$suffix")"
