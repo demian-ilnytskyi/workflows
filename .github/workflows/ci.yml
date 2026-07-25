@@ -1,4 +1,4 @@
-name: Flutter Package Workflow
+name: CI Workflows
 
 on:
   workflow_call:
