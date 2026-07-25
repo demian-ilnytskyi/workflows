@@ -93,6 +93,10 @@ jobs:
               echo "No migrations found. Skipping linting."
           fi
 
+      - name: Write Default Linter Query
+        if: ${{ inputs.validate_sql }}
+        uses: demian-ilnytskyi/workflows/.github/actions/write-splinter-sql@main
+
       - name: Run Supabase Security Advisor Linter
         if: ${{ inputs.validate_sql }}
         uses: demian-ilnytskyi/workflows/.github/actions/run-security-advisor-linter@main
