@@ -12,12 +12,28 @@ inputs:
   secrets_json:
     description: 'toJSON(secrets) from the calling workflow'
     required: true
+  cloudflare_api_token:
+    description: 'Cloudflare API token, required by `wrangler secret put`'
+    required: false
+    default: ''
+  cloudflare_account_id:
+    description: 'Cloudflare account ID, required by `wrangler secret put`'
+    required: false
+    default: ''
+  working_directory:
+    description: 'Directory holding wrangler.toml. A composite action does not inherit the caller job defaults, so it must be passed explicitly.'
+    required: false
+    default: '.'
 runs:
   using: composite
   steps:
     - shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         SECRETS_CONTEXT: ${{ inputs.secrets_json }}
+        # `wrangler secret put` below is a real API call, so it needs credentials.
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare_api_token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
       run: |
         echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.flavour }}" >> $GITHUB_ENV
         if [[ "${{ inputs.flavour }}" != "production" ]]; then
