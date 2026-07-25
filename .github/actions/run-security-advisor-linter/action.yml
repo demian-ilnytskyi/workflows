@@ -259,6 +259,62 @@ runs:
         )
         )
         )
+        UNION ALL
+        (
+        SELECT
+            'missing_updated_at_trigger' as name,
+            'Missing updated_at Trigger' as title,
+            'WARN' as level,
+            'EXTERNAL' as facing,
+            array['CORRECTNESS'] as categories,
+            'Detects tables with an updated_at column that are missing the trigger_set_timestamp trigger, which keeps updated_at current on row updates.' as description,
+            format(
+                'Table \`%s.%s\` has an updated_at column but no trigger_set_timestamp trigger, so updated_at will not update automatically.',
+                n.nspname,
+                c.relname
+            ) as detail,
+            'https://supabase.com/docs/guides/database/postgres/triggers' as remediation,
+            jsonb_build_object(
+                'schema', n.nspname,
+                'name', c.relname,
+                'type', 'table'
+            ) as metadata,
+            format(
+                'missing_updated_at_trigger_%s_%s',
+                n.nspname,
+                c.relname
+            ) as cache_key
+        FROM
+            pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
+            JOIN pg_catalog.pg_attribute a
+                ON a.attrelid = c.oid
+                AND a.attname = 'updated_at'
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+            LEFT JOIN pg_catalog.pg_depend dep
+                ON c.oid = dep.objid
+                AND dep.deptype = 'e'
+        WHERE
+            c.relkind = 'r'
+            AND n.nspname = 'public'
+            AND dep.objid IS NULL
+            AND EXISTS (
+                SELECT 1 FROM pg_catalog.pg_proc tf
+                JOIN pg_catalog.pg_namespace tn ON tf.pronamespace = tn.oid
+                WHERE tn.nspname = 'public' AND tf.proname = 'trigger_set_timestamp'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_trigger t
+                JOIN pg_catalog.pg_proc fp ON t.tgfoid = fp.oid
+                JOIN pg_catalog.pg_namespace fn ON fp.pronamespace = fn.oid
+                WHERE t.tgrelid = c.oid
+                  AND NOT t.tgisinternal
+                  AND fn.nspname = 'public'
+                  AND fp.proname = 'trigger_set_timestamp'
+            )
+        )
         "
 
         {
