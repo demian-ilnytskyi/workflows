@@ -1,0 +1,42 @@
+name: Deploy Supabase Edge Functions
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      working_directory:
+        required: false
+        type: string
+        default: "."
+
+jobs:
+  deploy:
+    runs-on: ${{inputs.runs_on}}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1.6.0
+
+      - name: Deploy all Edge Functions
+        run: supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  notify:
+    if: always()
+    needs:
+      - deploy
+    uses: ./.github/workflows/notification.yml
+    secrets: inherit
+    with:
+      job_status: ${{ needs.deploy.result }}
+      workflow: ${{ github.workflow }}
+      runs_on: ${{inputs.runs_on}}
