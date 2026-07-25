@@ -210,17 +210,10 @@ jobs:
               echo "No migrations found. Skipping linting."
           fi
 
-      - name: Run Supabase Security Advisor Linter
+      - name: Write Default Linter Query (part 1/5)
         if: ${{ inputs.validate_sql }}
         run: |
-          # 1. Verify dependencies
-          if ! command -v jq &> /dev/null; then
-            echo "Error: 'jq' utility is not installed! Please install jq to run this linter."
-            exit 1
-          fi
-
           if [ ! -f "scripts/splinter.sql" ]; then
-            echo "scripts/splinter.sql not found, writing default linter query..."
             mkdir -p scripts
             cat > scripts/splinter.sql << 'SPLINTER_SQL_EOF_0'
           set local search_path = '';
@@ -620,6 +613,12 @@ jobs:
                   or p.polroles = array[0::oid]
               left join pg_catalog.pg_depend dep
           SPLINTER_SQL_EOF_0
+          fi
+      - name: Write Default Linter Query (part 2/5)
+        if: ${{ inputs.validate_sql }}
+        run: |
+          if [ ! -f "scripts/splinter.sql" ]; then
+            mkdir -p scripts
             cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_1'
                   on c.oid = dep.objid
                   and dep.deptype = 'e',
@@ -1015,6 +1014,12 @@ jobs:
                   'name', table_name,
                   'type', 'table'
           SPLINTER_SQL_EOF_1
+          fi
+      - name: Write Default Linter Query (part 3/5)
+        if: ${{ inputs.validate_sql }}
+        run: |
+          if [ ! -f "scripts/splinter.sql" ]; then
+            mkdir -p scripts
             cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_2'
               ) as metadata,
               format('rls_references_user_metadata_%s_%s_%s', schema_name, table_name, policy_name) as cache_key
@@ -1436,6 +1441,12 @@ jobs:
                   and (
                       pg_catalog.has_table_privilege('anon', c.oid, 'SELECT')
           SPLINTER_SQL_EOF_2
+          fi
+      - name: Write Default Linter Query (part 4/5)
+        if: ${{ inputs.validate_sql }}
+        run: |
+          if [ ! -f "scripts/splinter.sql" ]; then
+            mkdir -p scripts
             cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_3'
                       or pg_catalog.has_table_privilege('authenticated', c.oid, 'SELECT')
                   )
@@ -1797,6 +1808,12 @@ jobs:
               format(
                   '%s `%s.%s` is visible in the GraphQL schema because the `anon` role can `SELECT` it. Revoke `SELECT` from `anon` if it should not be discoverable without signing in.',
           SPLINTER_SQL_EOF_3
+          fi
+      - name: Write Default Linter Query (part 5/5)
+        if: ${{ inputs.validate_sql }}
+        run: |
+          if [ ! -f "scripts/splinter.sql" ]; then
+            mkdir -p scripts
             cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_4'
                   object_type,
                   schema_name,
@@ -2062,6 +2079,15 @@ jobs:
               function_args)
           SPLINTER_SQL_EOF_4
           fi
+      - name: Run Supabase Security Advisor Linter
+        if: ${{ inputs.validate_sql }}
+        run: |
+          # Verify dependencies
+          if ! command -v jq &> /dev/null; then
+            echo "Error: 'jq' utility is not installed! Please install jq to run this linter."
+            exit 1
+          fi
+
 
           # 2. Extract and run linter query against the container
           echo "=== Executing Supabase Database Linter ==="
@@ -2304,14 +2330,19 @@ jobs:
           )
           "
 
-          FULL_QUERY="SET pgrst.db_schemas = 'public';
-          SET local search_path = '';
-          SELECT coalesce(json_agg(t), '[]'::json) FROM (
-          $QUERY_BODY
-          $SECURITY_CHECKS_QUERY
-          ) t;"
+          {
+            echo "SET pgrst.db_schemas = 'public';"
+            echo "SET local search_path = '';"
+            echo "SELECT coalesce(json_agg(t), '[]'::json) FROM ("
+            echo "$QUERY_BODY"
+            echo "$SECURITY_CHECKS_QUERY"
+            echo ") t;"
+          } > /tmp/full_query.sql
 
-          RAW_OUTPUT=$(echo "$FULL_QUERY" | docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A 2>/dev/null)
+      - name: Execute Supabase Security Advisor Linter Query
+        if: ${{ inputs.validate_sql }}
+        run: |
+          RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A < /tmp/full_query.sql 2>/dev/null)
 
           if [ $? -ne 0 ] || [ -z "$RAW_OUTPUT" ]; then
             echo "Error: Failed to execute database linter query against container!"
