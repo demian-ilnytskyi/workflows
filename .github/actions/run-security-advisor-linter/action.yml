@@ -301,7 +301,7 @@ runs:
         if [ "$LINT_COUNT" -gt 0 ]; then
           echo ""
           echo "❌ Unresolved security lints found ($LINT_COUNT items)"
-          echo "$LOCAL_LINTS" | jq -r '.[] | "────────────────────────────────────────────────────────\n[\(.level)] \(.title)\n\(.detail)\nRemediation: \(.remediation)\n"'
+          echo "$LOCAL_LINTS" | jq -r '.[] | "────────────────────────────────────────────────────────\n[\(.level)] \(.title)\n\(.detail)\nRemediation: \(.remediation)\n"' | sed 's/\\`/`/g'
           echo "────────────────────────────────────────────────────────"
           echo "❌ Lint check failed! Please fix the security issues listed above."
           exit 1
