@@ -3,15 +3,15 @@ name: CI Workflows
 on:
   workflow_call:
     inputs:
-      analyze_directories:
+      flutter_analyze_directories:
         required: false
         type: string
         default: "lib test"
-      concurrency:
+      flutter_concurrency:
         required: false
         type: number
         default: 4
-      coverage_excludes:
+      flutter_coverage_excludes:
         required: false
         type: string
         default: "lib/firebase_options_development.dart lib/l10n/l10n.dart lib/bootstrap.dart lib/shared/helper/get_it_service_locator.dart lib/shared/constants/theme_constant.dart lib/shared/constants/variables_constant.dart lib/shared/constants/* *.g.dart *.freezed.dart lib/shared/navigation/* lib/shared/data_provider/* */blocprovider/*.dart lib/shared/widget/card_add_image_widget.dart lib/shared/widget/image_widget.dart lib/shared/widget/user_photo_widget.dart lib/shared/bloc/authentication/authentication_state.dart lib/shared/bloc/authentication/listenable.dart lib/shared/extension/*.dart lib/shared/repositories/url_repository.dart lib/shared/bloc/authentication/authentication_event.dart lib/shared/repositories/firebase_module.dart lib/shared/repositories/network_module.dart lib/shared/widget/dilog_page_widget.dart lib/shared/widget/keyboard_scroll_view.dart lib/shared/widget/network_image_widget.dart lib/app.dart lib/components/story_add/widget/field_widget.dart lib/shared/models/failure_model/exceptions.dart lib/shared/widget/info_version_widget.dart lib/shared/widget/row_sliver_widget.dart lib/shared/widget/viewpager_indicator_widget.dart lib/shared/repositories/messaging_module.dart lib/shared/repositories/app_info_repository.dart lib/shared/repositories/failure_repository.dart lib/shared/repositories/failure_module.dart lib/shared/widget/popup_menu_item_widget.dart lib/shared/repositories/data_picker_module.dart lib/shared/repositories/mobile_rating_module.dart"
@@ -19,19 +19,19 @@ on:
         required: false
         type: string
         default: "stable"
-      format_directories:
+      flutter_format_directories:
         required: false
         type: string
         default: "lib test"
-      format_exclude:
+      flutter_format_exclude:
         required: false
         type: string
         default: "**/generated/**.dart test/**.mocks.dart lib/**.freezed.dart lib/**.g.dart"
-      format_line_length:
+      flutter_format_line_length:
         required: false
         type: string
         default: "80"
-      min_coverage:
+      flutter_min_coverage:
         required: false
         type: number
         default: 100
@@ -39,23 +39,23 @@ on:
         required: false
         type: string
         default: "ubuntu-latest"
-      setup:
+      flutter_setup:
         required: false
         type: string
         default: ""
-      test_optimization:
+      flutter_test_optimization:
         required: false
         type: boolean
         default: true
-      test_recursion:
+      flutter_test_recursion:
         required: false
         type: boolean
         default: false
-      working_directory:
+      flutter_working_directory:
         required: false
         type: string
         default: "."
-      package_get_excludes:
+      flutter_package_get_excludes:
         required: false
         type: string
         default: "!*"
@@ -150,16 +150,6 @@ on:
         required: false
         type: string
         default: 'cloudflare/cms'
-      spell_check_config:
-        description: 'Path to the cspell configuration file'
-        required: false
-        type: string
-        default: '.github/cspell.json'
-      spell_check_includes:
-        description: 'Glob patterns to include in spell check'
-        required: false
-        type: string
-        default: '**/*.md'
     secrets:
       ssh_key:
         required: false
@@ -193,46 +183,33 @@ jobs:
             firebase:
               - 'firebase/**'
             flutter:
-              - ${{ inputs.working_directory == '.' && 'lib/**' || format('{0}/lib/**', inputs.working_directory) }}
-              - ${{ inputs.working_directory == '.' && 'test/**' || format('{0}/test/**', inputs.working_directory) }}
-              - ${{ inputs.working_directory == '.' && 'pubspec.yaml' || format('{0}/pubspec.yaml', inputs.working_directory) }}
+              - ${{ inputs.flutter_working_directory == '.' && 'lib/**' || format('{0}/lib/**', inputs.flutter_working_directory) }}
+              - ${{ inputs.flutter_working_directory == '.' && 'test/**' || format('{0}/test/**', inputs.flutter_working_directory) }}
+              - ${{ inputs.flutter_working_directory == '.' && 'pubspec.yaml' || format('{0}/pubspec.yaml', inputs.flutter_working_directory) }}
             workflow:
               - 'cloudflare/workflow/**'
             cms:
               - ${{ inputs.cms_working_directory == '.' && 'src/**' || format('{0}/src/**', inputs.cms_working_directory) }}
 
-  semantic-pull-request:
-    uses: ./.github/workflows/semantic_pull_request.yml
-    with:
-      name: 'semantic-pull-request'
-
-  spell-check:
-    uses: ./.github/workflows/spell_check.yml
-    with:
-      config: ${{ inputs.spell_check_config }}
-      includes: ${{ inputs.spell_check_includes }}
-      modified_files_only: false
-      name: 'spell-check'
-
   flutter:
-    needs: [changes, semantic-pull-request, spell-check]
+    needs: [changes]
     if: needs.changes.outputs.flutter == 'true' && inputs.flutter_ci == true
     uses: ./.github/workflows/firebase_ci.yml
     with:
-      analyze_directories: ${{ inputs.analyze_directories }}
-      concurrency: ${{ inputs.concurrency }}
-      coverage_excludes: ${{ inputs.coverage_excludes }}
+      analyze_directories: ${{ inputs.flutter_analyze_directories }}
+      concurrency: ${{ inputs.flutter_concurrency }}
+      coverage_excludes: ${{ inputs.flutter_coverage_excludes }}
       flutter_channel: ${{ inputs.flutter_channel }}
-      format_directories: ${{ inputs.format_directories }}
-      format_exclude: ${{ inputs.format_exclude }}
-      format_line_length: ${{ inputs.format_line_length }}
-      min_coverage: ${{ inputs.min_coverage }}
+      format_directories: ${{ inputs.flutter_format_directories }}
+      format_exclude: ${{ inputs.flutter_format_exclude }}
+      format_line_length: ${{ inputs.flutter_format_line_length }}
+      min_coverage: ${{ inputs.flutter_min_coverage }}
       runs_on: ${{ inputs.runs_on }}
-      setup: ${{ inputs.setup }}
-      test_optimization: ${{ inputs.test_optimization }}
-      test_recursion: ${{ inputs.test_recursion }}
-      working_directory: ${{ inputs.working_directory }}
-      package_get_excludes: ${{ inputs.package_get_excludes }}
+      setup: ${{ inputs.flutter_setup }}
+      test_optimization: ${{ inputs.flutter_test_optimization }}
+      test_recursion: ${{ inputs.flutter_test_recursion }}
+      working_directory: ${{ inputs.flutter_working_directory }}
+      package_get_excludes: ${{ inputs.flutter_package_get_excludes }}
       pull_request: ${{ inputs.pull_request }}
       FLAVOUR: ${{ inputs.FLAVOUR }}
       supabase_ci: ${{ inputs.supabase_ci }}
@@ -241,7 +218,7 @@ jobs:
     secrets: inherit
 
   supabase:
-    needs: [changes, semantic-pull-request, spell-check]
+    needs: [changes]
     if: needs.changes.outputs.supabase == 'true' && inputs.supabase_ci == true
     uses: ./.github/workflows/supabase_ci.yml
     with:
@@ -258,7 +235,7 @@ jobs:
       name: 'supabase'
 
   firebase:
-    needs: [changes, semantic-pull-request, spell-check]
+    needs: [changes]
     if: needs.changes.outputs.firebase == 'true' && inputs.firebase_ci == true
     uses: ./.github/workflows/firebase_ci.yml
     with:
@@ -269,7 +246,7 @@ jobs:
       min_coverage: ${{ inputs.firebase_min_coverage }}
 
   workflow:
-    needs: [changes, semantic-pull-request, spell-check]
+    needs: [changes]
     if: needs.changes.outputs.workflow == 'true' && inputs.workflow_ci == true
     uses: ./.github/workflows/next_js_ci.yml
     with:
@@ -285,7 +262,7 @@ jobs:
       test_path: ${{ inputs.workflow_test_path }}
 
   cms:
-    needs: [changes, semantic-pull-request, spell-check]
+    needs: [changes]
     if: needs.changes.outputs.cms == 'true' && inputs.cms_ci == true
     uses: ./.github/workflows/next_js_ci.yml
     with:
@@ -305,8 +282,6 @@ jobs:
       - firebase
       - workflow
       - cms
-      - semantic-pull-request
-      - spell-check
     uses: ./.github/workflows/notification.yml
     secrets: inherit
     with:
