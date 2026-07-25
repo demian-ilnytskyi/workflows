@@ -7,6 +7,7 @@ runs:
       shell: bash
       run: |
         if [ ! -f "scripts/splinter.sql" ]; then
+          touch /tmp/.splinter_default_needed
           mkdir -p scripts
           cat > scripts/splinter.sql << 'SPLINTER_SQL_EOF_0'
         set local search_path = '';
@@ -410,8 +411,7 @@ runs:
     - name: Write Default Linter Query (part 2/5)
       shell: bash
       run: |
-        if [ ! -f "scripts/splinter.sql" ]; then
-          mkdir -p scripts
+        if [ -f /tmp/.splinter_default_needed ]; then
           cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_1'
                 on c.oid = dep.objid
                 and dep.deptype = 'e',
@@ -811,8 +811,7 @@ runs:
     - name: Write Default Linter Query (part 3/5)
       shell: bash
       run: |
-        if [ ! -f "scripts/splinter.sql" ]; then
-          mkdir -p scripts
+        if [ -f /tmp/.splinter_default_needed ]; then
           cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_2'
             ) as metadata,
             format('rls_references_user_metadata_%s_%s_%s', schema_name, table_name, policy_name) as cache_key
@@ -1238,8 +1237,7 @@ runs:
     - name: Write Default Linter Query (part 4/5)
       shell: bash
       run: |
-        if [ ! -f "scripts/splinter.sql" ]; then
-          mkdir -p scripts
+        if [ -f /tmp/.splinter_default_needed ]; then
           cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_3'
                     or pg_catalog.has_table_privilege('authenticated', c.oid, 'SELECT')
                 )
@@ -1605,8 +1603,7 @@ runs:
     - name: Write Default Linter Query (part 5/5)
       shell: bash
       run: |
-        if [ ! -f "scripts/splinter.sql" ]; then
-          mkdir -p scripts
+        if [ -f /tmp/.splinter_default_needed ]; then
           cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_4'
                 object_type,
                 schema_name,
@@ -1871,4 +1868,5 @@ runs:
             function_name,
             function_args)
         SPLINTER_SQL_EOF_4
+          rm -f /tmp/.splinter_default_needed
         fi
