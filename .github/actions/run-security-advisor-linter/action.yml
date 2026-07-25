@@ -270,7 +270,7 @@ runs:
           echo ") t;"
         } > /tmp/full_query.sql
 
-        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1)
+        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1) || true
         PSQL_EXIT=$?
 
         if [ $PSQL_EXIT -ne 0 ] || [ -z "$RAW_OUTPUT" ]; then
@@ -281,7 +281,7 @@ runs:
 
         # Parse and filter generated local lints
         CLEAN_JSON=$(echo "$RAW_OUTPUT" | grep -v -E "^SET|^$" || true)
-        LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>&1)
+        LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>&1) || true
 
         if [ -z "$LOCAL_LINTS" ] || echo "$LOCAL_LINTS" | grep -q "^jq:"; then
           echo "Error: Failed to parse or execute query JSON output!"
