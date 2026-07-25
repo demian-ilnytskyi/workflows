@@ -12,12 +12,18 @@ inputs:
   secrets_json:
     description: 'toJSON(secrets) from the calling workflow'
     required: true
+  cloudflare_api_token:
+    required: true
+  cloudflare_account_id:
+    required: true
 runs:
   using: composite
   steps:
     - shell: bash
       env:
         SECRETS_CONTEXT: ${{ inputs.secrets_json }}
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare_api_token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
       run: |
         echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.flavour }}" >> $GITHUB_ENV
         if [[ "${{ inputs.flavour }}" != "production" ]]; then

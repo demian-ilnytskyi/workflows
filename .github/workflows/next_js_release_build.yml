@@ -88,6 +88,8 @@ jobs:
           secrets_map: ${{ inputs.secrets_map }}
           set_as_env: ${{ inputs.set_as_env }}
           secrets_json: ${{ toJSON(secrets) }}
+          cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare_account_id: ${{ inputs.accountId || secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
