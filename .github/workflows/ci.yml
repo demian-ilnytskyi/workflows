@@ -194,7 +194,7 @@ jobs:
   flutter:
     needs: [changes]
     if: needs.changes.outputs.flutter == 'true' && inputs.flutter_ci == true
-    uses: ./.github/workflows/firebase_ci.yml
+    uses: ./.github/workflows/flutter_ci.yml
     with:
       analyze_directories: ${{ inputs.flutter_analyze_directories }}
       concurrency: ${{ inputs.flutter_concurrency }}
@@ -205,16 +205,9 @@ jobs:
       format_line_length: ${{ inputs.flutter_format_line_length }}
       min_coverage: ${{ inputs.flutter_min_coverage }}
       runs_on: ${{ inputs.runs_on }}
-      setup: ${{ inputs.flutter_setup }}
       test_optimization: ${{ inputs.flutter_test_optimization }}
       test_recursion: ${{ inputs.flutter_test_recursion }}
       working_directory: ${{ inputs.flutter_working_directory }}
-      package_get_excludes: ${{ inputs.flutter_package_get_excludes }}
-      pull_request: ${{ inputs.pull_request }}
-      FLAVOUR: ${{ inputs.FLAVOUR }}
-      supabase_ci: ${{ inputs.supabase_ci }}
-      send_notifications: false
-      name: 'flutter'
     secrets: inherit
 
   supabase:
