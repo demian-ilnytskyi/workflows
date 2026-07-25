@@ -59,6 +59,7 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       SUPABASE_DIR: ${{inputs.supabase_dir}}
     steps:
@@ -72,6 +73,16 @@ jobs:
         uses: supabase/setup-cli@v2
         with:
           version: latest
+
+      - name: Resolve Supabase Project ID
+        run: |
+          if [ -z "$SUPABASE_PROJECT_ID" ] && [ -n "$SUPABASE_URL" ]; then
+            DERIVED_ID=$(echo "$SUPABASE_URL" | sed -E 's#^https?://##; s#\.supabase\.co.*##')
+            if [ -n "$DERIVED_ID" ]; then
+              echo "SUPABASE_PROJECT_ID=$DERIVED_ID" >> "$GITHUB_ENV"
+              echo "Derived SUPABASE_PROJECT_ID from SUPABASE_URL."
+            fi
+          fi
 
       - name: Generate Migrations from Data-Base
         run: |
@@ -248,7 +259,7 @@ jobs:
           if [ "${{ inputs.no_verify_jwt }}" = "true" ]; then
               JWT_FLAG="--no-verify-jwt"
           fi
-          supabase functions deploy $JWT_FLAG --project-ref '${{ secrets.SUPABASE_PROJECT_ID }}'
+          supabase functions deploy $JWT_FLAG --project-ref "$SUPABASE_PROJECT_ID"
   notify:
     if: always() && inputs.send_notifications == true
     needs:
