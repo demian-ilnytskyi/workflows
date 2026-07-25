@@ -1,0 +1,128 @@
+name: Firebase CI
+
+permissions:
+  id-token: write
+  contents: write
+
+on:
+  workflow_call:
+    inputs:
+      FLAVOUR:
+        required: false
+        type: string
+      runs_on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      send_notifications:
+        description: 'Set to true to send Slack notifications'
+        required: false
+        type: boolean
+        default: true
+      name:
+        description: 'The name of the job'
+        required: false
+        type: string
+        default: 'firebase-ci'
+      min_coverage:
+        description: 'Minimum required firebase statement coverage percentage'
+        required: false
+        type: number
+        default: 50
+
+jobs:
+  ci:
+    name: ${{ inputs.name }}
+    runs-on: ${{ inputs.runs_on }}
+    environment: ${{ inputs.FLAVOUR }}
+    steps:
+      - uses: actions/checkout@v4.1.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: firebase/functions/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: firebase/functions
+        run: npm ci
+
+      - name: Lint Firebase Functions
+        working-directory: firebase/functions
+        run: npx tsc --noEmit && npx eslint . --fix
+
+      - name: Run Unit Tests with Coverage
+        working-directory: firebase/functions
+        run: |
+          if ! npx vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text; then
+            echo "❌ Firebase function tests failed!"
+            exit 1
+          fi
+          
+          SUMMARY_FILE="coverage/coverage-summary.json"
+          if [ ! -f "$SUMMARY_FILE" ]; then
+            echo "❌ Coverage summary file not found at $SUMMARY_FILE!"
+            exit 1
+          fi
+          
+          OVERALL_LINE_PCT=$(jq -r '.total.lines.pct' "$SUMMARY_FILE")
+          OVERALL_LINE_INT=${OVERALL_LINE_PCT%.*}
+          
+          echo ""
+          echo "==============================================="
+          echo "📋 Per-File Coverage Check (Line Coverage)"
+          echo "==============================================="
+          printf "%-45s | %-10s | %s\n" "File" "Line Cov." "Status"
+          printf '%0.s-' {1..70}; echo ""
+          
+          MIN_COVERAGE_REQUIRED="${{ inputs.min_coverage }}"
+          ANY_BELOW=false
+          
+          while IFS=$'\t' read -r filepath pct; do
+            relpath=$(echo "$filepath" | sed 's|.*/firebase/functions/src/||')
+            pct_int=${pct%.*}
+            
+            if [ -z "$pct_int" ] || ! [[ "$pct_int" =~ ^[0-9]+$ ]]; then
+              continue
+            fi
+          
+            if [ "$pct_int" -lt "$MIN_COVERAGE_REQUIRED" ]; then
+              ANY_BELOW=true
+              printf "%-45s | %-10s | ❌ below %d%%\n" "$relpath" "${pct}%" "$MIN_COVERAGE_REQUIRED"
+            else
+              printf "%-45s | %-10s | ✅\n" "$relpath" "${pct}%"
+            fi
+          done < <(jq -r 'to_entries[] | select(.key != "total") | "\(.key)\t\(.value.lines.pct)"' "$SUMMARY_FILE")
+          
+          printf '%0.s-' {1..70}; echo ""
+          printf "%-45s | %s%%\n" "OVERALL" "${OVERALL_LINE_PCT}"
+          echo ""
+          
+          if [ -z "$OVERALL_LINE_INT" ]; then
+            echo "⚠️  Warning: Could not parse overall coverage. Skipping threshold check."
+            exit 0
+          fi
+          
+          if [ "$OVERALL_LINE_INT" -lt "$MIN_COVERAGE_REQUIRED" ]; then
+            echo "❌ Firebase function coverage check failed!"
+            echo "Current line coverage (${OVERALL_LINE_PCT}%) is below the minimum threshold of ${MIN_COVERAGE_REQUIRED}%."
+            exit 1
+          else
+            echo "✅ Success! Firebase function line coverage is at ${OVERALL_LINE_PCT}% (minimum required is ${MIN_COVERAGE_REQUIRED}%)."
+          fi
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+  notify:
+    if: always() && inputs.send_notifications == true
+    needs:
+      - ci
+    uses: ./.github/workflows/notification.yml
+    secrets: inherit
+    with:
+      job_status: ${{ needs.ci.result }}
+      workflow: ${{ github.workflow }}
+      runs_on: ${{ inputs.runs_on }}
+      trigger_actor: ${{ github.actor }}

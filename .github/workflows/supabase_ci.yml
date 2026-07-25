@@ -1,0 +1,833 @@
+name: Supabase CI
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: write # This is required for actions/checkout 
+
+on:
+  workflow_call:
+    inputs:
+      FLAVOUR:
+        required: false
+        type: string
+      runs_on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      send_notifications:
+        description: 'Set to true to send Slack notifications'
+        required: false
+        type: boolean
+        default: true
+      name:
+        description: 'The name of the job'
+        required: false
+        type: string
+        default: 'ci'
+      validate_sql:
+        description: 'Set to true to validate SQL migrations natively'
+        required: false
+        type: boolean
+        default: true
+      validate_functions:
+        description: 'Set to true to lint Supabase Functions'
+        required: false
+        type: boolean
+        default: true
+      min_coverage:
+        description: 'Minimum required database statement coverage percentage'
+        required: false
+        type: number
+        default: 50
+      service_functions_file:
+        description: 'Path to file listing service-role-only functions (no anon grant required)'
+        required: false
+        type: string
+        default: 'supabase/migrations/service_functions.txt'
+      definer_functions_file:
+        description: 'Path to file listing functions allowed to use SECURITY DEFINER'
+        required: false
+        type: string
+        default: 'supabase/migrations/definer_functions.txt'
+      include_anon:
+        description: 'Require anon GRANT EXECUTE on public RPC functions by default (set false to require only authenticated + service_role)'
+        required: false
+        type: boolean
+        default: true
+      DATABASE_DIR:
+        description: 'Path to database schema folder'
+        required: false
+        type: string
+        default: 'supabase/data-base'
+      MIGRATIONS_DIR:
+        description: 'Path to database migrations folder'
+        required: false
+        type: string
+        default: 'supabase/migrations'
+
+jobs:
+  ci:
+    name: ${{ inputs.name }}
+    runs-on: ${{inputs.runs_on}}
+    environment: ${{inputs.FLAVOUR}} 
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start Database
+        run: |
+          DATABASE_DIR="${{ inputs.DATABASE_DIR }}"
+          MIGRATIONS_DIR="${{ inputs.MIGRATIONS_DIR }}"
+          TESTS_DIR="supabase/tests"
+          CONTAINER_NAME="supabase-test-db"
+          
+          echo "Starting PostgreSQL container..."
+          docker run -p 54322:5432 --name "$CONTAINER_NAME" --rm -d -e POSTGRES_PASSWORD=postgres postgres:15 > /dev/null
+          
+          echo -n "Waiting for database to initialize... "
+          MAX_WAIT=30
+          for ((i=1; i<=MAX_WAIT; i++)); do
+              if docker exec "$CONTAINER_NAME" pg_isready -U postgres > /dev/null 2>&1; then break; fi
+              sleep 1
+              if [ $i -eq $MAX_WAIT ]; then echo "Failed to start database."; exit 1; fi
+          done
+          echo "Ready."
+          
+          # Determine what to install
+          INSTALL_PACKAGES=""
+          HAS_MIGRATIONS=false
+          if [ -d "$MIGRATIONS_DIR" ] && [ -n "$(find "$MIGRATIONS_DIR" -name "*.sql" 2>/dev/null)" ]; then
+              HAS_MIGRATIONS=true
+              INSTALL_PACKAGES="$INSTALL_PACKAGES postgresql-15-plpgsql-check"
+          fi
+          
+          HAS_TESTS=false
+          if [ -d "$TESTS_DIR" ] && [ -n "$(find "$TESTS_DIR" -name "*.sql" 2>/dev/null)" ]; then
+              HAS_TESTS=true
+              INSTALL_PACKAGES="$INSTALL_PACKAGES postgresql-15-pgtap"
+          fi
+          
+          if [ -n "$INSTALL_PACKAGES" ]; then
+              echo "Installing extensions ($INSTALL_PACKAGES)..."
+              docker exec "$CONTAINER_NAME" sh -c "apt-get update -qq && apt-get install -y -qq $INSTALL_PACKAGES > /dev/null 2>&1"
+          fi
+          
+          if [ "$HAS_MIGRATIONS" = true ]; then
+              # Configure plpgsql_check in shared_preload_libraries so profiler hooks are active from server start
+              echo "Configuring plpgsql_check shared_preload_libraries..."
+              docker exec "$CONTAINER_NAME" psql -U postgres -c "ALTER SYSTEM SET shared_preload_libraries = 'plpgsql_check';" > /dev/null
+              docker restart "$CONTAINER_NAME" > /dev/null
+              
+              echo -n "Waiting for database to restart... "
+              MAX_WAIT=30
+              for ((i=1; i<=MAX_WAIT; i++)); do
+                  if docker exec "$CONTAINER_NAME" pg_isready -U postgres > /dev/null 2>&1; then break; fi
+                  sleep 1
+                  if [ $i -eq $MAX_WAIT ]; then echo "Failed to restart database."; exit 1; fi
+              done
+              echo "Ready."
+          fi
+          
+          if [ "$HAS_TESTS" = true ]; then
+              docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -c "CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION IF NOT EXISTS pgtap SCHEMA extensions;" > /dev/null
+          fi
+          
+          if [ "$HAS_MIGRATIONS" = true ]; then
+              echo "Applying and validating migrations..."
+              FILES=$(find "$MIGRATIONS_DIR" -name "*.sql" | sort)
+              for FILE in $FILES; do
+                  echo "  -> Applying $(basename "$FILE")... "
+                  # Using ON_ERROR_STOP=1 so any migration syntax/runtime error will fail GHA immediately
+                  docker exec -i "$CONTAINER_NAME" psql -q -U postgres -d postgres -v ON_ERROR_STOP=1 < "$FILE"
+              done
+          fi
+          
+          # Apply custom schema files from data-base folder recursively
+          if [ -d "$DATABASE_DIR" ]; then
+              echo "Applying custom schema files from data-base recursively..."
+              
+              APPLIED_FILES=" "
+
+              process_path_ci() {
+                  local target="$1"
+                  
+                  if [ -f "$target" ]; then
+                      if [[ "$target" == *.sql ]]; then
+                          if [[ "$APPLIED_FILES" != *" $target "* ]]; then
+                              echo "  -> Applying $(basename "$target")..."
+                              docker exec -i "$CONTAINER_NAME" psql -q -U postgres -d postgres -v ON_ERROR_STOP=1 < "$target"
+                              APPLIED_FILES="$APPLIED_FILES$target "
+                          fi
+                      fi
+                  elif [ -d "$target" ]; then
+                      local order_file="$target/order.txt"
+                      local local_applied=" "
+                      
+                      # 1. Process items listed in order.txt first
+                      if [ -f "$order_file" ]; then
+                          while IFS= read -r line || [ -n "$line" ]; do
+                              line=$(echo "$line" | tr -d '\r' | xargs)
+                              if [ -n "$line" ] && [ ! "${line:0:1}" = "#" ]; then
+                                  local item_path="$target/$line"
+                                  if [ -e "$item_path" ]; then
+                                      process_path_ci "$item_path"
+                                      local_applied="$local_applied$line "
+                                  fi
+                              fi
+                          done < "$order_file"
+                      fi
+                      
+                      # 2. Process all other items in alphabetical order
+                      local items
+                      items=$(find "$target" -mindepth 1 -maxdepth 1 | sort)
+                      for item in $items; do
+                          if [ -e "$item" ]; then
+                              local basename_item
+                              basename_item=$(basename "$item")
+                              if [ "$basename_item" != "order.txt" ] && [[ "$local_applied" != *" $basename_item "* ]]; then
+                                  process_path_ci "$item"
+                              fi
+                          fi
+                      done
+                  fi
+              }
+
+              process_path_ci "$DATABASE_DIR"
+          fi
+          
+          
+      - name: Lint Database Schema
+        if: ${{ inputs.validate_sql }}
+        run: |
+          MIGRATIONS_DIR="${{ inputs.MIGRATIONS_DIR }}"
+          if [ -d "$MIGRATIONS_DIR" ] && [ -n "$(find "$MIGRATIONS_DIR" -name "*.sql" 2>/dev/null)" ]; then
+              echo "Running Supabase Database Linter..."
+              # Set --fail-on to warning to fail CI on any warnings or errors
+              supabase db lint --db-url "postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable" --schema public --level warning --fail-on warning
+          else
+              echo "No migrations found. Skipping linting."
+          fi
+
+      - name: Run Supabase Security Advisor Linter
+        if: ${{ inputs.validate_sql }}
+        run: |
+          # 1. Verify dependencies
+          if ! command -v jq &> /dev/null; then
+            echo "Error: 'jq' utility is not installed! Please install jq to run this linter."
+            exit 1
+          fi
+
+          if [ ! -f "scripts/splinter.sql" ]; then
+            echo "Error: SQL splinter file not found at scripts/splinter.sql"
+            exit 1
+          fi
+
+          # 2. Extract and run linter query against the container
+          echo "=== Executing Supabase Database Linter ==="
+          QUERY_BODY=$(tail -n +3 scripts/splinter.sql)
+
+          # Load service-only functions list (no anon grant required)
+          INCLUDE_ANON="${{ inputs.include_anon }}"
+          SERVICE_FUNCTIONS_LIST=""
+          SERVICE_FUNCTIONS_FILE="${{ inputs.service_functions_file }}"
+          if [ -f "$SERVICE_FUNCTIONS_FILE" ]; then
+            SERVICE_FUNCTIONS_LIST=$(cat "$SERVICE_FUNCTIONS_FILE" | tr -d '\n' | sed 's/[[:space:]]*,[[:space:]]*/,/g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          fi
+
+          # Load allowed SECURITY DEFINER functions list
+          DEFINER_FUNCTIONS_LIST=""
+          DEFINER_FUNCTIONS_FILE="${{ inputs.definer_functions_file }}"
+          if [ -f "$DEFINER_FUNCTIONS_FILE" ]; then
+            DEFINER_FUNCTIONS_LIST=$(cat "$DEFINER_FUNCTIONS_FILE" | tr -d '\n' | sed 's/[[:space:]]*,[[:space:]]*/,/g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+          fi
+
+          # Append security checks to the linter query body
+          SECURITY_CHECKS_QUERY="
+          UNION ALL
+          (
+          WITH allowed_definer_functions AS (
+              SELECT trim(unnest(string_to_array('$DEFINER_FUNCTIONS_LIST', ','))) AS fname
+          )
+          SELECT
+              'security_definer_function' as name,
+              'Security Definer Function' as title,
+              'ERROR' as level,
+              'EXTERNAL' as facing,
+              array['SECURITY'] as categories,
+              'Detects functions defined with the SECURITY DEFINER property. Functions should use SECURITY INVOKER instead to respect RLS policies.' as description,
+              format(
+                  'Function \`%s.%s(%s)\` is defined with the SECURITY DEFINER property',
+                  n.nspname,
+                  p.proname,
+                  pg_catalog.pg_get_function_identity_arguments(p.oid)
+              ) as detail,
+              'https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable' as remediation,
+              jsonb_build_object(
+                  'schema', n.nspname,
+                  'name', p.proname,
+                  'arguments', pg_catalog.pg_get_function_identity_arguments(p.oid),
+                  'language', l.lanname,
+                  'security_definer', true,
+                  'type', 'function'
+              ) as metadata,
+              format(
+                  'security_definer_function_%s_%s_%s',
+                  n.nspname,
+                  p.proname,
+                  pg_catalog.pg_get_function_identity_arguments(p.oid)
+              ) as cache_key
+          FROM
+              pg_catalog.pg_proc p
+              JOIN pg_catalog.pg_namespace n
+                  ON p.pronamespace = n.oid
+              JOIN pg_catalog.pg_language l
+                  ON p.prolang = l.oid
+          WHERE
+              p.prosecdef = true
+              AND n.nspname = ANY(ARRAY(SELECT trim(unnest(string_to_array(current_setting('pgrst.db_schemas', 't'), ',')))))
+              AND n.nspname NOT IN (
+                  '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_config', '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql', 'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga', 'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog', 'realtime', 'repack', 'storage', 'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
+              )
+              AND NOT EXISTS (SELECT 1 FROM allowed_definer_functions WHERE fname = p.proname)
+          )
+          UNION ALL
+          (
+          SELECT
+              'rls_disabled' as name,
+              'Row Level Security Disabled' as title,
+              'ERROR' as level,
+              'EXTERNAL' as facing,
+              array['SECURITY'] as categories,
+              'Detects cases where row level security (RLS) has not been enabled on tables in exposed schemas.' as description,
+              format(
+                  'Table \`%s.%s\` does not have Row Level Security (RLS) enabled',
+                  n.nspname,
+                  c.relname
+              ) as detail,
+              'https://supabase.com/docs/guides/database/postgres/row-level-security' as remediation,
+              jsonb_build_object(
+                  'schema', n.nspname,
+                  'name', c.relname,
+                  'type', 'table'
+              ) as metadata,
+              format(
+                  'rls_disabled_%s_%s',
+                  n.nspname,
+                  c.relname
+              ) as cache_key
+          FROM
+              pg_catalog.pg_class c
+              JOIN pg_catalog.pg_namespace n
+                  ON c.relnamespace = n.oid
+              LEFT JOIN pg_catalog.pg_depend dep
+                  ON c.oid = dep.objid
+                  AND dep.deptype = 'e'
+          WHERE
+              c.relkind = 'r'
+              AND NOT c.relrowsecurity
+              AND n.nspname = ANY(ARRAY(SELECT trim(unnest(string_to_array(current_setting('pgrst.db_schemas', 't'), ',')))))
+              AND n.nspname NOT IN (
+                  '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_config', '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql', 'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga', 'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog', 'realtime', 'repack', 'storage', 'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
+              )
+              AND dep.objid IS NULL
+          )
+          UNION ALL
+          (
+          SELECT
+              'function_returns_jsonb_using_table' as name,
+              'Function Returns JSONB and Uses Table' as title,
+              'ERROR' as level,
+              'EXTERNAL' as facing,
+              array['SECURITY'] as categories,
+              'Detects functions in public schemas that return jsonb and reference tables.' as description,
+              format(
+                  'Function \`%s.%s(%s)\` returns jsonb and references table \`%s\`',
+                  n.nspname,
+                  p.proname,
+                  pg_catalog.pg_get_function_identity_arguments(p.oid),
+                  t.relname
+              ) as detail,
+              'https://supabase.com/docs/guides/database/postgres/row-level-security' as remediation,
+              jsonb_build_object(
+                  'schema', n.nspname,
+                  'name', p.proname,
+                  'arguments', pg_catalog.pg_get_function_identity_arguments(p.oid),
+                  'table', t.relname,
+                  'type', 'function'
+              ) as metadata,
+              format(
+                  'function_returns_jsonb_using_table_%s_%s_%s',
+                  n.nspname,
+                  p.proname,
+                  t.relname
+              ) as cache_key
+          FROM
+              pg_catalog.pg_proc p
+              JOIN pg_catalog.pg_namespace n ON p.pronamespace = n.oid
+              CROSS JOIN LATERAL (
+                  SELECT c.relname
+                  FROM pg_catalog.pg_class c
+                  JOIN pg_catalog.pg_namespace tn ON c.relnamespace = tn.oid
+                  WHERE c.relkind = 'r'
+                    AND tn.nspname = 'public'
+                    AND p.prosrc ~* concat('\y', c.relname, '\y')
+              ) t
+          WHERE
+              p.prorettype = 'jsonb'::regtype
+              AND n.nspname = 'public'
+              AND n.nspname NOT IN (
+                  '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_config', '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql', 'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga', 'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog', 'realtime', 'repack', 'storage', 'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
+              )
+          )
+          UNION ALL
+          (
+          WITH service_only_functions AS (
+              SELECT trim(unnest(string_to_array('$SERVICE_FUNCTIONS_LIST', ','))) AS fname
+          )
+          SELECT
+              'rpc_missing_explicit_grants' as name,
+              'RPC Function Missing Explicit Grants' as title,
+              'ERROR' as level,
+              'EXTERNAL' as facing,
+              array['SECURITY'] as categories,
+              'Detects public schema functions that lack explicit GRANT EXECUTE for required roles, or that still have the dangerous default PUBLIC grant.' as description,
+              format(
+                  'Function \`public.%s(%s)\`%s%s',
+                  p.proname,
+                  pg_catalog.pg_get_function_identity_arguments(p.oid),
+          CASE WHEN array_length(ARRAY(
+                SELECT r FROM unnest(
+                    CASE WHEN '$INCLUDE_ANON' = 'false'
+                              THEN ARRAY['authenticated','service_role']
+                              WHEN EXISTS (SELECT 1 FROM service_only_functions WHERE fname = p.proname)
+                              THEN ARRAY['service_role']
+                              ELSE ARRAY['anon','authenticated','service_role']
+                    END
+                ) AS r
+                WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = r)
+                  AND NOT has_function_privilege(r, p.oid, 'EXECUTE')
+             ), 1) > 0
+             THEN ' is missing explicit GRANT EXECUTE for: ' || array_to_string(ARRAY(
+                SELECT r FROM unnest(
+                    CASE WHEN '$INCLUDE_ANON' = 'false'
+                              THEN ARRAY['authenticated','service_role']
+                              WHEN EXISTS (SELECT 1 FROM service_only_functions WHERE fname = p.proname)
+                              THEN ARRAY['service_role']
+                              ELSE ARRAY['anon','authenticated','service_role']
+                    END
+                ) AS r
+                WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = r)
+                  AND NOT has_function_privilege(r, p.oid, 'EXECUTE')
+             ), ', ')
+             ELSE '' END,
+                  CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon')
+                            AND has_function_privilege('public', p.oid, 'EXECUTE')
+                       THEN ' has dangerous PUBLIC grant (revoke it)'
+                       ELSE '' END
+              ) as detail,
+              'https://supabase.com/docs/guides/database/postgres/row-level-security' as remediation,
+              jsonb_build_object(
+                  'schema', 'public',
+                  'name', p.proname,
+                  'arguments', pg_catalog.pg_get_function_identity_arguments(p.oid),
+                  'type', 'function'
+              ) as metadata,
+              format(
+                  'rpc_missing_explicit_grants_public_%s_%s',
+                  p.proname,
+                  pg_catalog.pg_get_function_identity_arguments(p.oid)
+              ) as cache_key
+          FROM
+              pg_catalog.pg_proc p
+              JOIN pg_catalog.pg_namespace n ON p.pronamespace = n.oid
+              JOIN pg_catalog.pg_language l ON p.prolang = l.oid
+          WHERE
+              n.nspname = 'public'
+              AND l.lanname IN ('plpgsql', 'sql')
+              AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+              AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon')
+          AND (
+          has_function_privilege('public', p.oid, 'EXECUTE')
+          OR EXISTS (
+            SELECT 1 FROM unnest(
+                CASE WHEN '$INCLUDE_ANON' = 'false'
+                          THEN ARRAY['authenticated','service_role']
+                          WHEN EXISTS (SELECT 1 FROM service_only_functions WHERE fname = p.proname)
+                          THEN ARRAY['service_role']
+                          ELSE ARRAY['anon','authenticated','service_role']
+                END
+            ) AS r
+            WHERE NOT has_function_privilege(r, p.oid, 'EXECUTE')
+          )
+          )
+          )
+          "
+
+          FULL_QUERY="SET pgrst.db_schemas = 'public';
+          SET local search_path = '';
+          SELECT coalesce(json_agg(t), '[]'::json) FROM (
+          $QUERY_BODY
+          $SECURITY_CHECKS_QUERY
+          ) t;"
+
+          RAW_OUTPUT=$(echo "$FULL_QUERY" | docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A 2>/dev/null)
+
+          if [ $? -ne 0 ] || [ -z "$RAW_OUTPUT" ]; then
+            echo "Error: Failed to execute database linter query against container!"
+            exit 1
+          fi
+
+          # 3. Parse and filter generated local lints
+          CLEAN_JSON=$(echo "$RAW_OUTPUT" | grep -v -E "^SET|^$" || true)
+          LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>/dev/null)
+
+          if [ -z "$LOCAL_LINTS" ] || [ "$LOCAL_LINTS" = "null" ]; then
+            echo "Error: Failed to parse or execute query JSON output!"
+            echo "Raw stdout: $RAW_OUTPUT"
+            exit 1
+          fi
+
+          # 4. Check if any security lints exist and fail CI if so
+          LINT_COUNT=$(echo "$LOCAL_LINTS" | jq '. | length')
+
+          if [ "$LINT_COUNT" -gt 0 ]; then
+            echo ""
+            echo "❌ Unresolved security lints found ($LINT_COUNT items):"
+            echo "$LOCAL_LINTS" | jq -r '.[] | "  - Name: \(.name) | Cache Key: \(.cache_key // .detail)\n    Detail: \(.detail)"'
+            echo ""
+            echo "❌ Lint check failed! Please fix the security issues listed above."
+            exit 1
+          else
+            echo ""
+            echo "✅ Success! 0 security lints found."
+            exit 0
+          fi
+
+      - name: Run Database Tests (pgTAP)
+        run: |
+          TESTS_DIR="supabase/tests"
+          CONTAINER_NAME="supabase-test-db"
+          if [ -d "$TESTS_DIR" ] && [ -n "$(find "$TESTS_DIR" -name "*.sql" 2>/dev/null)" ]; then
+              # Setup plpgsql_check profiler (done here, after linting, so supabase db lint is unaffected)
+              docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -c "CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION IF NOT EXISTS plpgsql_check WITH SCHEMA extensions; ALTER DATABASE postgres SET plpgsql_check.profiler = on;" || true
+              # Reset profiler before running tests
+              docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -c "SELECT extensions.plpgsql_profiler_reset_all();" >/dev/null 2>&1 || true
+              echo "Running pgTAP tests..."
+              TEST_FILES=$(find "$TESTS_DIR" -name "*.sql" | sort)
+              ERRORS=0
+              FAILED_TESTS=()
+              for FILE in $TEST_FILES; do
+                  echo "--------------------------------------------------"
+                  echo "Running $(basename "$FILE")"
+                  set +e
+                  OUTPUT=$(docker exec -i -e PGOPTIONS="-c search_path=public,extensions -c plpgsql_check.profiler=on" "$CONTAINER_NAME" psql -U postgres -d postgres 2>&1 < "$FILE")
+                  EXIT_CODE=$?
+                  set -e
+                  echo "$OUTPUT"
+                  if [ $EXIT_CODE -ne 0 ] || echo "$OUTPUT" | grep -qE "not ok [0-9]+"; then
+                      ERRORS=$((ERRORS + 1))
+                      FAILED_TESTS+=("$(basename "$FILE")")
+                      echo ""
+                      echo "❌ Failed assertions in $(basename "$FILE"):"
+                      echo "$OUTPUT" | grep -E "not ok [0-9]+|# Failed test|#[[:space:]]+(have|want):" || true
+                  fi
+              done
+
+              if [ "$ERRORS" -eq 0 ]; then
+                  echo -e "\n\033[0;32mALL DATABASE TESTS PASSED!\033[0m"
+              else
+                  echo -e "\n\033[0;31mDATABASE TESTS FAILED WITH $ERRORS ERROR(S).\033[0m"
+                  echo ""
+                  echo "Failed test files:"
+                  for f in "${FAILED_TESTS[@]}"; do echo "  ❌ $f"; done
+                  exit 1
+              fi
+          else
+              echo "No database tests found. Skipping."
+          fi
+
+      - name: Run Database Statement Coverage Check
+        run: |
+          CONTAINER_NAME="supabase-test-db"
+          TESTS_DIR="supabase/tests"
+          MIN_COV="${{ inputs.min_coverage }}"
+
+          if [ -d "$TESTS_DIR" ] && [ -n "$(find "$TESTS_DIR" -name "*.sql" 2>/dev/null)" ]; then
+
+              _wait_for_db() {
+                for ((i=1; i<=30; i++)); do
+                  if docker exec "$CONTAINER_NAME" pg_isready -U postgres > /dev/null 2>&1; then return 0; fi
+                  sleep 1
+                done
+                return 1
+              }
+
+              # Fetch user-defined public plpgsql functions (oid|name).
+              # Extension functions (pgtap, plpgsql_check, etc.) are excluded via pg_depend so
+              # they are never passed to plpgsql_profiler_function_statements_tb, which is
+              # known to crash the PostgreSQL server on certain extension-provided plpgsql bodies.
+              FUNCTIONS_RAW=$(docker exec -i "$CONTAINER_NAME" psql -U postgres -d postgres -t -A -c \
+                "SELECT p.oid::text || '|' || p.proname
+                 FROM pg_catalog.pg_proc p
+                 JOIN pg_catalog.pg_namespace n ON p.pronamespace = n.oid
+                 JOIN pg_catalog.pg_language l ON p.prolang = l.oid
+                 WHERE n.nspname = 'public'
+                   AND l.lanname = 'plpgsql'
+                   AND p.prorettype <> 'trigger'::regtype
+                   AND p.prorettype <> 'event_trigger'::regtype
+                   AND p.proname <> 'current_user_id'
+                   AND NOT EXISTS (
+                     SELECT 1 FROM pg_catalog.pg_depend d
+                     WHERE d.objid = p.oid AND d.deptype = 'e'
+                   )
+                 ORDER BY p.proname;" 2>&1)
+
+              if [ $? -ne 0 ]; then
+                echo "❌ Error: Could not retrieve function list for coverage check."
+                echo "$FUNCTIONS_RAW"
+                exit 1
+              fi
+
+              TOTAL_STMTS=0
+              TOTAL_COVERED=0
+              FUNC_RESULTS=()
+              SKIPPED_FUNCS=()
+              DATA_LOST=false
+
+              # Profile each function individually so a single crash does not abort all coverage
+              while IFS='|' read -r fn_oid fn_name; do
+                [ -z "$fn_oid" ] && continue
+
+                if [ "$DATA_LOST" = true ]; then
+                  # After a server crash the shared-memory profiler store is wiped on restart,
+                  # so any remaining functions will have no data. Record them as skipped.
+                  SKIPPED_FUNCS+=("$fn_name (profiler data lost due to earlier server crash)")
+                  continue
+                fi
+
+                FN_JSON=$(docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -t -A -c \
+                  "SELECT row_to_json(r) FROM (
+                     SELECT
+                       COUNT(lineno)::integer AS total,
+                       COUNT(CASE WHEN exec_stmts > 0 THEN 1 END)::integer AS covered,
+                       COALESCE(
+                         json_agg(json_build_object('lineno', lineno, 'stmtname', stmtname) ORDER BY lineno)
+                         FILTER (WHERE exec_stmts = 0),
+                         '[]'::json
+                       ) AS uncovered_lines
+                     FROM extensions.plpgsql_profiler_function_statements_tb($fn_oid)
+                   ) r;" 2>/dev/null)
+
+                if [ $? -ne 0 ] || [ -z "$FN_JSON" ]; then
+                  if ! docker exec "$CONTAINER_NAME" pg_isready -U postgres > /dev/null 2>&1; then
+                    echo "⚠️  plpgsql_check profiler crashed on '$fn_name', restarting container..."
+                    docker restart "$CONTAINER_NAME" > /dev/null
+                    _wait_for_db || { echo "❌ Failed to restart database container after profiler crash"; exit 1; }
+                    DATA_LOST=true
+                  else
+                    echo "⚠️  Profiler error for '$fn_name', skipping..."
+                  fi
+                  SKIPPED_FUNCS+=("$fn_name")
+                  continue
+                fi
+
+                FN_DATA=$(echo "$FN_JSON" | grep -E '^\{' | head -1)
+                if [ -z "$FN_DATA" ]; then
+                  echo "⚠️  Unexpected profiler output for '$fn_name' (no JSON found), skipping..."
+                  SKIPPED_FUNCS+=("$fn_name (unexpected profiler output: $(echo "$FN_JSON" | head -1))")
+                  continue
+                fi
+
+                TOT=$(echo "$FN_DATA" | jq -r '.total // 0')
+                COV=$(echo "$FN_DATA" | jq -r '.covered // 0')
+                UNCOV=$(echo "$FN_DATA" | jq -c '.uncovered_lines // []')
+
+                PCT=100
+                [ "$TOT" -gt 0 ] && PCT=$(( (COV * 100) / TOT ))
+
+                FUNC_RESULTS+=("{\"name\":\"$fn_name\",\"total\":$TOT,\"covered\":$COV,\"pct\":$PCT,\"uncovered_lines\":$UNCOV}")
+                TOTAL_STMTS=$(( TOTAL_STMTS + TOT ))
+                TOTAL_COVERED=$(( TOTAL_COVERED + COV ))
+
+              done <<< "$FUNCTIONS_RAW"
+
+              # Assemble final JSON from collected per-function results
+              FUNCS_JSON="["
+              FIRST=true
+              for entry in "${FUNC_RESULTS[@]}"; do
+                [ "$FIRST" = true ] && FUNCS_JSON+="$entry" || FUNCS_JSON+=",$entry"
+                FIRST=false
+              done
+              FUNCS_JSON+="]"
+              COVERAGE_JSON="{\"functions\":$FUNCS_JSON}"
+
+              if [ "$TOTAL_STMTS" -gt 0 ]; then
+                OVERALL_PCT=$(( (TOTAL_COVERED * 100) / TOTAL_STMTS ))
+              else
+                OVERALL_PCT=100
+              fi
+
+              echo "========================================================================="
+              echo "📊 PL/pgSQL Statement-Level Code Coverage Report (Database)"
+              echo "========================================================================="
+              printf "%-42s | %-5s | %-7s | %-10s\n" "Function Name" "Total" "Covered" "Coverage %"
+              echo "-------------------------------------------------------------------------"
+              echo "$COVERAGE_JSON" | jq -r '(.functions // []) | sort_by(.name)[] | [.name, (.total|tostring), (.covered|tostring), ((.pct|tostring) + "%")] | @tsv' | \
+                while IFS=$'\t' read -r name total covered pct; do
+                  printf "%-42s | %-5s | %-7s | %s\n" "$name" "$total" "$covered" "$pct"
+                done
+              echo "-------------------------------------------------------------------------"
+              printf "%-42s | %-5s | %-7s | %s%%\n" "Total" "$TOTAL_STMTS" "$TOTAL_COVERED" "$OVERALL_PCT"
+              echo "========================================================================="
+
+              if [ ${#SKIPPED_FUNCS[@]} -gt 0 ]; then
+                echo ""
+                echo "⚠️  The following functions could not be profiled (plpgsql_check crash or error):"
+                for fn in "${SKIPPED_FUNCS[@]}"; do
+                  echo "  - $fn"
+                done
+                [ "$DATA_LOST" = true ] && echo "  Coverage results above cover only functions profiled before the crash."
+              fi
+
+              echo ""
+              echo "⚠️  Improvements Required (Uncovered lines):"
+              HAS_UNCOVERED=false
+              while IFS= read -r func_name; do
+                UNCOVERED=$(echo "$COVERAGE_JSON" | jq -r --arg fn "$func_name" \
+                  '(.functions // []) | .[] | select(.name == $fn) | .uncovered_lines // [] | .[] | "  - Line \(.lineno): \(.stmtname)"')
+                if [ -n "$UNCOVERED" ]; then
+                  HAS_UNCOVERED=true
+                  echo ""
+                  echo "🔹 $func_name:"
+                  echo "$UNCOVERED"
+                fi
+              done < <(echo "$COVERAGE_JSON" | jq -r '(.functions // []) | sort_by(.name)[].name')
+
+              if [ "$HAS_UNCOVERED" = false ]; then
+                echo "  None! All lines in all functions are fully tested."
+              fi
+
+              if [ "$OVERALL_PCT" -lt "$MIN_COV" ]; then
+                echo ""
+                echo "❌ Database test statement coverage check failed!"
+                echo "Current statement coverage (${OVERALL_PCT}%) is below the minimum threshold of ${MIN_COV}%."
+                exit 1
+              else
+                echo ""
+                echo "✅ Success! Statement coverage is at ${OVERALL_PCT}% (minimum required is ${MIN_COV}%)."
+              fi
+          else
+              echo "No database tests found. Skipping coverage check."
+          fi
+
+      - name: Cleanup Database Container
+        if: always()
+        run: |
+          echo "Stopping database container..."
+          docker stop supabase-test-db || true
+
+      - name: Setup Deno
+        run: |
+          curl -fsSL https://deno.land/install.sh | sh -s v2.3.3
+          echo "$HOME/.deno/bin" >> $GITHUB_PATH
+      - name: Install Deno dependencies
+        working-directory: supabase/functions
+        run: deno install
+      - name: Lint Supabase Functions
+        if: ${{ inputs.validate_functions }}
+        working-directory: supabase/functions
+        run: |
+           deno task lint
+      - name: Test Supabase Functions with Coverage
+        working-directory: supabase/functions
+        run: |
+           COVERAGE_DIR=".deno_coverage"
+           rm -rf "$COVERAGE_DIR"
+           
+           if ! NO_COLOR=1 deno test --no-check --allow-all --node-modules-dir=auto --coverage="$COVERAGE_DIR" .; then
+             echo "❌ Edge function tests failed!"
+             exit 1
+           fi
+           
+           COVERAGE_OUTPUT=$(NO_COLOR=1 deno coverage "$COVERAGE_DIR" --exclude='test\.ts$|supabaseMock\.ts$' 2>/dev/null)
+           rm -rf "$COVERAGE_DIR"
+           
+           echo "==============================================="
+           echo "📊 Edge Function Coverage Report"
+           echo "==============================================="
+           echo "$COVERAGE_OUTPUT"
+               # Find the field index of 'Line %'
+           LINE_COL_IDX=$(echo "$COVERAGE_OUTPUT" | grep 'File' | awk -F'|' '{
+             for (i=1; i<=NF; i++) {
+               if ($i ~ /Line/) {
+                 print i;
+                 exit;
+               }
+             }
+           }')
+           if [ -z "$LINE_COL_IDX" ]; then
+             LINE_COL_IDX=4
+           fi
+           
+           OVERALL_LINE_PCT=$(echo "$COVERAGE_OUTPUT" | grep 'All files' | awk -F'|' -v col="$LINE_COL_IDX" '{gsub(/[[:space:]]/, "", $col); print int($col)}')
+           
+           echo "==============================================="
+           echo "📋 Per-File Coverage Check (Line Coverage)"
+           echo "==============================================="
+           printf "%-45s | %-10s | %s\n" "File" "Line Cov." "Status"
+           printf '%0.s-' {1..70}; echo ""
+           
+           MIN_COVERAGE_REQUIRED="${{ inputs.min_coverage }}"
+           ANY_BELOW=false
+           while IFS= read -r line; do
+             [[ "$line" =~ ^\|[[:space:]]+-+ ]] && continue
+             [[ "$line" =~ Branch ]] && continue
+             [[ "$line" =~ All\ files ]] && continue
+             [[ ! "$line" =~ ^\| ]] && continue
+           
+             FILE=$(echo "$line" | awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}')
+             LINE_PCT=$(echo "$line" | awk -F'|' -v col="$LINE_COL_IDX" '{gsub(/[[:space:]]/, "", $col); print $col}')
+             LINE_INT=${LINE_PCT%.*}
+           
+             if [ -z "$FILE" ] || [ -z "$LINE_INT" ] || ! [[ "$LINE_INT" =~ ^[0-9]+$ ]]; then
+               continue
+             fi
+           
+             if [ "$LINE_INT" -lt "$MIN_COVERAGE_REQUIRED" ]; then
+               ANY_BELOW=true
+               printf "%-45s | %-10s | ❌ below %d%%\n" "$FILE" "${LINE_PCT}%" "$MIN_COVERAGE_REQUIRED"
+             else
+               printf "%-45s | %-10s | ✅\n" "$FILE" "${LINE_PCT}%"
+             fi
+           done <<< "$COVERAGE_OUTPUT"
+           
+           printf '%0.s-' {1..70}; echo ""
+           printf "%-45s | %s%%\n" "OVERALL" "${OVERALL_LINE_PCT}"
+           echo ""
+           
+           if [ -z "$OVERALL_LINE_PCT" ]; then
+             echo "⚠️  Warning: Could not parse overall coverage. Skipping threshold check."
+             exit 0
+           fi
+           
+           if [ "$OVERALL_LINE_PCT" -lt "$MIN_COVERAGE_REQUIRED" ]; then
+             echo "❌ Edge function coverage check failed!"
+             echo "Current line coverage (${OVERALL_LINE_PCT}%) is below the minimum threshold of ${MIN_COVERAGE_REQUIRED}%."
+             exit 1
+           else
+             echo "✅ Success! Edge function line coverage is at ${OVERALL_LINE_PCT}% (minimum required is ${MIN_COVERAGE_REQUIRED}%)."
+           fi
+
+  notify:
+    if: always() && inputs.send_notifications == true # Ensures this job runs regardless of the completion status of dependent jobs, but only if notifications are enabled
+    needs:
+      - ci
+    uses: ./.github/workflows/notification.yml
+    secrets: inherit
+    with:
+      job_status: ${{ needs.ci.result }}
+      workflow: ${{ github.workflow }}
+      runs_on: ${{ inputs.runs_on }}
+      trigger_actor: ${{ github.actor }}

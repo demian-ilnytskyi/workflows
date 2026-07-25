@@ -1,0 +1,318 @@
+name: Flutter Package Workflow
+
+on:
+  workflow_call:
+    inputs:
+      analyze_directories:
+        required: false
+        type: string
+        default: "lib test"
+      concurrency:
+        required: false
+        type: number
+        default: 4
+      coverage_excludes:
+        required: false
+        type: string
+        default: "lib/firebase_options_development.dart lib/l10n/l10n.dart lib/bootstrap.dart lib/shared/helper/get_it_service_locator.dart lib/shared/constants/theme_constant.dart lib/shared/constants/variables_constant.dart lib/shared/constants/* *.g.dart *.freezed.dart lib/shared/navigation/* lib/shared/data_provider/* */blocprovider/*.dart lib/shared/widget/card_add_image_widget.dart lib/shared/widget/image_widget.dart lib/shared/widget/user_photo_widget.dart lib/shared/bloc/authentication/authentication_state.dart lib/shared/bloc/authentication/listenable.dart lib/shared/extension/*.dart lib/shared/repositories/url_repository.dart lib/shared/bloc/authentication/authentication_event.dart lib/shared/repositories/firebase_module.dart lib/shared/repositories/network_module.dart lib/shared/widget/dilog_page_widget.dart lib/shared/widget/keyboard_scroll_view.dart lib/shared/widget/network_image_widget.dart lib/app.dart lib/components/story_add/widget/field_widget.dart lib/shared/models/failure_model/exceptions.dart lib/shared/widget/info_version_widget.dart lib/shared/widget/row_sliver_widget.dart lib/shared/widget/viewpager_indicator_widget.dart lib/shared/repositories/messaging_module.dart lib/shared/repositories/app_info_repository.dart lib/shared/repositories/failure_repository.dart lib/shared/repositories/failure_module.dart lib/shared/widget/popup_menu_item_widget.dart lib/shared/repositories/data_picker_module.dart lib/shared/repositories/mobile_rating_module.dart"
+      flutter_channel:
+        required: false
+        type: string
+        default: "stable"
+      format_directories:
+        required: false
+        type: string
+        default: "lib test"
+      format_exclude:
+        required: false
+        type: string
+        default: "**/generated/**.dart test/**.mocks.dart lib/**.freezed.dart lib/**.g.dart"
+      format_line_length:
+        required: false
+        type: string
+        default: "80"
+      min_coverage:
+        required: false
+        type: number
+        default: 100
+      runs_on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      setup:
+        required: false
+        type: string
+        default: ""
+      test_optimization:
+        required: false
+        type: boolean
+        default: true
+      test_recursion:
+        required: false
+        type: boolean
+        default: false
+      working_directory:
+        required: false
+        type: string
+        default: "."
+      package_get_excludes:
+        required: false
+        type: string
+        default: "!*"
+      pull_request:
+        required: true
+        type: string
+      FLAVOUR:
+        required: false
+        type: string
+      supabase_ci:
+        description: 'Set to true to skip Supabase CI even if changes are detected'
+        required: false
+        type: boolean
+        default: true
+      supabase_validate_sql:
+        description: 'Set to true to validate SQL migrations natively'
+        required: false
+        type: boolean
+        default: true
+      supabase_validate_functions:
+        description: 'Set to true to lint and validate Supabase Edge Functions'
+        required: false
+        type: boolean
+        default: true
+      supabase_min_coverage:
+        description: 'Minimum required supabase coverage percentage'
+        required: false
+        type: number
+        default: 50
+      supabase_service_functions_file:
+        description: 'Path to file listing service-role-only functions (no anon grant required)'
+        required: false
+        type: string
+        default: 'supabase/migrations/service_functions.txt'
+      supabase_include_anon:
+        description: 'Require anon GRANT EXECUTE on public RPC functions by default'
+        required: false
+        type: boolean
+        default: true
+      supabase_database_dir:
+        description: 'Path to database schema folder'
+        required: false
+        type: string
+        default: 'supabase/data-base'
+      supabase_migrations_dir:
+        description: 'Path to database migrations folder'
+        required: false
+        type: string
+        default: 'supabase/migrations'
+      firebase_min_coverage:
+        description: 'Minimum required firebase coverage percentage'
+        required: false
+        type: number
+        default: 50
+      workflow_min_coverage:
+        description: 'Minimum required workflow coverage percentage'
+        required: false
+        type: number
+        default: 50
+      workflow_test:
+        description: 'Set to true to run workflow unit tests'
+        required: false
+        type: boolean
+        default: false
+      workflow_test_path:
+        description: 'Path or file pattern to run tests on'
+        required: false
+        type: string
+        default: 'src/__tests__'
+      firebase_ci:
+        description: 'Set to true to skip Firebase CI even if changes are detected'
+        required: false
+        type: boolean
+        default: true
+      flutter_ci:
+        description: 'Set to true to skip Flutter CI even if changes are detected'
+        required: false
+        type: boolean
+        default: true
+      workflow_ci:
+        description: 'Set to true to skip Workflow CI even if changes are detected'
+        required: false
+        type: boolean
+        default: false
+      cms_ci:
+        description: 'Set to true to skip CMS CI even if changes are detected'
+        required: false
+        type: boolean
+        default: false
+      cms_working_directory:
+        description: 'Working directory for the CMS project'
+        required: false
+        type: string
+        default: 'cloudflare/cms'
+      spell_check_config:
+        description: 'Path to the cspell configuration file'
+        required: false
+        type: string
+        default: '.github/cspell.json'
+      spell_check_includes:
+        description: 'Glob patterns to include in spell check'
+        required: false
+        type: string
+        default: '**/*.md'
+    secrets:
+      ssh_key:
+        required: false
+
+env:
+  GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
+  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL_VETERANAM }}
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: write # This is required for actions/checkout
+  pull-requests: read # This is required for dorny/paths-filter to list PR files
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      supabase: ${{ steps.filter.outputs.supabase }}
+      firebase: ${{ steps.filter.outputs.firebase }}
+      flutter: ${{ steps.filter.outputs.flutter }}
+      workflow: ${{ steps.filter.outputs.workflow }}
+      cms: ${{ steps.filter.outputs.cms }}
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: 🕵️ Detect Changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            supabase:
+              - 'supabase/**'
+            firebase:
+              - 'firebase/**'
+            flutter:
+              - ${{ inputs.working_directory == '.' && 'lib/**' || format('{0}/lib/**', inputs.working_directory) }}
+              - ${{ inputs.working_directory == '.' && 'test/**' || format('{0}/test/**', inputs.working_directory) }}
+              - ${{ inputs.working_directory == '.' && 'pubspec.yaml' || format('{0}/pubspec.yaml', inputs.working_directory) }}
+            workflow:
+              - 'cloudflare/workflow/**'
+            cms:
+              - ${{ inputs.cms_working_directory == '.' && 'src/**' || format('{0}/src/**', inputs.cms_working_directory) }}
+
+  semantic-pull-request:
+    uses: ./.github/workflows/semantic_pull_request.yml
+    with:
+      name: 'semantic-pull-request'
+
+  spell-check:
+    uses: ./.github/workflows/spell_check.yml
+    with:
+      config: ${{ inputs.spell_check_config }}
+      includes: ${{ inputs.spell_check_includes }}
+      modified_files_only: false
+      name: 'spell-check'
+
+  flutter:
+    needs: [changes, semantic-pull-request, spell-check]
+    if: needs.changes.outputs.flutter == 'true' && inputs.flutter_ci == true
+    uses: ./.github/workflows/flutter_package.yml
+    with:
+      analyze_directories: ${{ inputs.analyze_directories }}
+      concurrency: ${{ inputs.concurrency }}
+      coverage_excludes: ${{ inputs.coverage_excludes }}
+      flutter_channel: ${{ inputs.flutter_channel }}
+      format_directories: ${{ inputs.format_directories }}
+      format_exclude: ${{ inputs.format_exclude }}
+      format_line_length: ${{ inputs.format_line_length }}
+      min_coverage: ${{ inputs.min_coverage }}
+      runs_on: ${{ inputs.runs_on }}
+      setup: ${{ inputs.setup }}
+      test_optimization: ${{ inputs.test_optimization }}
+      test_recursion: ${{ inputs.test_recursion }}
+      working_directory: ${{ inputs.working_directory }}
+      package_get_excludes: ${{ inputs.package_get_excludes }}
+      pull_request: ${{ inputs.pull_request }}
+      FLAVOUR: ${{ inputs.FLAVOUR }}
+      supabase_ci: ${{ inputs.supabase_ci }}
+      send_notifications: false
+      name: 'flutter'
+    secrets: inherit
+
+  supabase:
+    needs: [changes, semantic-pull-request, spell-check]
+    if: needs.changes.outputs.supabase == 'true' && inputs.supabase_ci == true
+    uses: ./.github/workflows/supabase_ci.yml
+    with:
+      FLAVOUR: ${{ inputs.FLAVOUR }}
+      runs_on: ${{ inputs.runs_on }}
+      send_notifications: false
+      validate_sql: ${{ inputs.supabase_validate_sql }}
+      validate_functions: ${{ inputs.supabase_validate_functions }}
+      min_coverage: ${{ inputs.supabase_min_coverage }}
+      service_functions_file: ${{ inputs.supabase_service_functions_file }}
+      include_anon: ${{ inputs.supabase_include_anon }}
+      DATABASE_DIR: ${{ inputs.supabase_database_dir }}
+      MIGRATIONS_DIR: ${{ inputs.supabase_migrations_dir }}
+      name: 'supabase'
+
+  firebase:
+    needs: [changes, semantic-pull-request, spell-check]
+    if: needs.changes.outputs.firebase == 'true' && inputs.firebase_ci == true
+    uses: ./.github/workflows/firebase_ci.yml
+    with:
+      FLAVOUR: ${{ inputs.FLAVOUR }}
+      runs_on: ${{ inputs.runs_on }}
+      send_notifications: false
+      name: 'firebase'
+      min_coverage: ${{ inputs.firebase_min_coverage }}
+
+  workflow:
+    needs: [changes, semantic-pull-request, spell-check]
+    if: needs.changes.outputs.workflow == 'true' && inputs.workflow_ci == true
+    uses: ./.github/workflows/next_js_ci.yml
+    with:
+      working_directory: 'cloudflare/workflow'
+      runs_on: ${{ inputs.runs_on }}
+      send_notifications: false
+      tsconfig_path: 'cloudflare/workflow/tsconfig.json'
+      eslint_dir: 'cloudflare/workflow/src'
+      ignore_patterns: 'public/images'
+      name: 'workflow'
+      min_coverage: ${{ inputs.workflow_min_coverage }}
+      run_tests: ${{ inputs.workflow_test }}
+      test_path: ${{ inputs.workflow_test_path }}
+
+  cms:
+    needs: [changes, semantic-pull-request, spell-check]
+    if: needs.changes.outputs.cms == 'true' && inputs.cms_ci == true
+    uses: ./.github/workflows/next_js_ci.yml
+    with:
+      working_directory: ${{ inputs.cms_working_directory }}
+      runs_on: ${{ inputs.runs_on }}
+      send_notifications: false
+      tsconfig_path: ${{ inputs.cms_working_directory == '.' && 'tsconfig.json' || format('{0}/tsconfig.json', inputs.cms_working_directory) }}
+      eslint_dir: ${{ inputs.cms_working_directory == '.' && 'src' || format('{0}/src', inputs.cms_working_directory) }}
+      ignore_patterns: 'public/images'
+      name: 'cms'
+
+  notify:
+    if: always() # Ensures this job runs regardless of the completion status of dependent jobs
+    needs:
+      - flutter
+      - supabase
+      - firebase
+      - workflow
+      - cms
+      - semantic-pull-request
+      - spell-check
+    uses: ./.github/workflows/notification.yml
+    secrets: inherit
+    with:
+      job_status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+      workflow: ${{ github.workflow }}
+      dop_text: ${{ format('Pull Request - {0}' ,inputs.pull_request)  }}
+      runs_on: ${{inputs.runs_on}}
+      trigger_actor: ${{ github.actor }}
+      pr_title: ${{ github.event.pull_request.title }}

@@ -1,0 +1,295 @@
+name: Next JS CI
+
+# Controls when the workflow will run
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+
+      working_directory:
+        required: false
+        type: string
+        default: "."
+      send_notifications:
+        description: 'Set to true to send Slack notifications'
+        required: false
+        type: boolean
+        default: true
+      tsconfig_path:
+        description: 'Path to the tsconfig.json file'
+        required: false
+        type: string
+        default: 'tsconfig.json'
+      eslint_dir:
+        description: 'Directory to run ESLint on'
+        required: false
+        type: string
+        default: 'src'
+      ignore_patterns:
+        description: 'Regex patterns to ignore in the output'
+        required: false
+        type: string
+        default: 'public/images'
+      name:
+        description: 'The name of the job'
+        required: false
+        type: string
+        default: 'ci'
+      min_coverage:
+        description: 'Minimum required statement coverage percentage'
+        required: false
+        type: number
+        default: 50
+      run_tests:
+        description: 'Set to true to run unit tests'
+        required: false
+        type: boolean
+        default: false
+      test_path:
+        description: 'Path or file pattern to run tests on'
+        required: false
+        type: string
+        default: 'src/__tests__'
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read # This is required for actions/checkout
+
+jobs:
+  ci:
+    name: ${{ inputs.name }}
+    runs-on: ${{inputs.runs_on}} # We are using ubuntu to deploy flutter web
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@main
+        with:
+          node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: 📦 Install Dependencies
+        # npm ci instead of npm install to not overwrite package_lock.json
+        run: npm install
+
+      - name: 🔍 Code Quality Check
+        run: |
+          # =========================================
+          # Colors
+          # =========================================
+          RED='\033[0;31m'
+          YELLOW='\033[1;33m'
+          BLUE='\033[0;34m'
+          GREEN='\033[0;32m'
+          NC='\033[0m'
+
+          echo -e "${BLUE}========================================${NC}"
+          echo -e "${BLUE}   🔍 Project Code Quality Inspection   ${NC}"
+          echo -e "${BLUE}========================================\n"
+
+          HAS_ERRORS=0
+          HAS_WARNINGS=0
+          HAS_INFO=0
+
+          ###############################################
+          # 1. TypeScript CHECK
+          ###############################################
+          echo -e "▶ ${BLUE}[1/2] TypeScript Type Checking${NC}"
+          echo -e "──────────────────────────────────────────\n"
+
+          # Run tsc without emitting files
+          # Using github.workspace to support paths relative to the repo root
+          # Added || true to prevent script from crashing before summary if errors exist
+          TS_RAW_OUTPUT=$(npx tsc --noEmit --pretty false -p ${{ github.workspace }}/${{ inputs.tsconfig_path }} 2>&1 || true)
+
+          # Filter out any errors/warnings containing the ignore patterns
+          TS_OUTPUT_FILTERED=$(echo "$TS_RAW_OUTPUT" | grep -v -E "${{ inputs.ignore_patterns }}" || true)
+
+          # Count errors/warnings/info
+          TS_ERROR_COUNT=$(echo "$TS_OUTPUT_FILTERED" | grep -c "error TS" || true)
+          TS_WARNING_COUNT=$(echo "$TS_OUTPUT_FILTERED" | grep -c "warning" || true)
+          TS_INFO_COUNT=$(echo "$TS_OUTPUT_FILTERED" | grep -c "TS6133" || true) # unused vars
+
+          if [ $TS_ERROR_COUNT -gt 0 ]; then HAS_ERRORS=1; fi
+          if [ $TS_WARNING_COUNT -gt 0 ]; then HAS_WARNINGS=1; fi
+          if [ $TS_INFO_COUNT -gt 0 ]; then HAS_INFO=1; fi
+
+          # Display filtered TypeScript output
+          if [ $TS_ERROR_COUNT -gt 0 ]; then
+              echo -e "${RED}❌ TypeScript Errors:${NC}"
+              echo "$TS_OUTPUT_FILTERED" | grep "error TS" || true
+              echo ""
+          fi
+
+          if [ $TS_WARNING_COUNT -gt 0 ]; then
+              echo -e "${YELLOW}⚠ TypeScript Warnings:${NC}"
+              echo "$TS_OUTPUT_FILTERED" | grep "warning" || true
+              echo ""
+          fi
+
+          if [ $TS_INFO_COUNT -gt 0 ]; then
+              echo -e "${BLUE}ℹ TypeScript Info (unused vars):${NC}"
+              echo "$TS_OUTPUT_FILTERED" | grep "TS6133" || true
+              echo ""
+          fi
+
+          if [ $TS_ERROR_COUNT -eq 0 ] && [ $TS_WARNING_COUNT -eq 0 ] && [ $TS_INFO_COUNT -eq 0 ]; then
+              echo -e "${GREEN}✅ TypeScript: No errors, warnings, or info found${NC}\n"
+          fi
+
+          ###############################################
+          # 2. ESLint CHECK
+          ###############################################
+          echo -e "▶ ${BLUE}[2/2] Running ESLint${NC}"
+          echo -e "──────────────────────────────────────────\n"
+
+          # Using github.workspace to support paths relative to the repo root
+          # Added || true to prevent script from crashing before summary if errors exist
+          ESLINT_OUTPUT=$(npx eslint ${{ github.workspace }}/${{ inputs.eslint_dir }} --format=stylish 2>&1 || true)
+
+          # Filter out the ignore patterns
+          ESLINT_OUTPUT_FILTERED=$(echo "$ESLINT_OUTPUT" | grep -v -E "${{ inputs.ignore_patterns }}" || true)
+
+          # Count ESLint errors/warnings/info
+          ESLINT_ERROR_COUNT=$(echo "$ESLINT_OUTPUT_FILTERED" | grep -c "error" || true)
+          ESLINT_WARNING_COUNT=$(echo "$ESLINT_OUTPUT_FILTERED" | grep -c "warning" || true)
+          ESLINT_INFO_COUNT=$(echo "$ESLINT_OUTPUT_FILTERED" | grep -c "no-unused-vars" || true)
+
+          if [ $ESLINT_ERROR_COUNT -gt 0 ]; then HAS_ERRORS=1; fi
+          if [ $ESLINT_WARNING_COUNT -gt 0 ]; then HAS_WARNINGS=1; fi
+          if [ $ESLINT_INFO_COUNT -gt 0 ]; then HAS_INFO=1; fi
+
+          # Print ESLint output
+          if [ -n "$ESLINT_OUTPUT_FILTERED" ]; then
+              while IFS= read -r line; do
+                  if [[ $line == *"error"* ]] || [[ $line == *"✖"* ]]; then
+                      echo -e "${RED}$line${NC}"
+                  elif [[ $line == *"warning"* ]]; then
+                      echo -e "${YELLOW}$line${NC}"
+                  elif [[ $line == *"no-unused-vars"* ]]; then
+                      echo -e "${BLUE}$line${NC}"
+                  else
+                      echo "$line"
+                  fi
+              done <<< "$ESLINT_OUTPUT_FILTERED"
+          else
+              echo -e "${GREEN}✅ ESLint: No issues or info found${NC}"
+          fi
+
+          echo ""
+
+          ###############################################
+          # SUMMARY
+          ###############################################
+          echo -e "${BLUE}========================================${NC}"
+          echo -e "${BLUE}               Summary                  ${NC}"
+          echo -e "${BLUE}========================================${NC}"
+
+          if [ $HAS_ERRORS -eq 1 ]; then
+              echo -e "${RED}❌ Errors found${NC}"
+          fi
+
+          if [ $HAS_WARNINGS -eq 1 ]; then
+              echo -e "${YELLOW}⚠ Warnings found${NC}"
+          fi
+
+          if [ $HAS_INFO -eq 1 ]; then
+              echo -e "${BLUE}ℹ Info found (unused imports/vars)${NC}"
+          fi
+
+          echo ""
+
+          # Fail pipeline only if there are real errors
+          if [ $HAS_ERRORS -eq 1 ]; then
+              echo -e "${RED}❌ ERROR.${NC}"
+              exit 1
+          else
+              echo -e "${GREEN}✅ No errors found.${NC}"
+              exit 0
+          fi
+
+      - name: 🧪 Run Tests
+        if: ${{ inputs.run_tests }}
+        run: |
+          if jq -e '.scripts.test' package.json >/dev/null 2>&1; then
+            echo "Running npm test with coverage on path ${{ inputs.test_path }}..."
+            if ! npx vitest run ${{ inputs.test_path }} --coverage --coverage.reporter=json-summary --coverage.reporter=text; then
+              echo "❌ Tests failed!"
+              exit 1
+            fi
+            
+            SUMMARY_FILE="coverage/coverage-summary.json"
+            if [ ! -f "$SUMMARY_FILE" ]; then
+              echo "❌ Coverage summary file not found at $SUMMARY_FILE!"
+              exit 1
+            fi
+            
+            OVERALL_LINE_PCT=$(jq -r '.total.lines.pct' "$SUMMARY_FILE")
+            OVERALL_LINE_INT=${OVERALL_LINE_PCT%.*}
+            
+            echo ""
+            echo "==============================================="
+            echo "📋 Per-File Coverage Check (Line Coverage)"
+            echo "==============================================="
+            printf "%-45s | %-10s | %s\n" "File" "Line Cov." "Status"
+            printf '%0.s-' {1..70}; echo ""
+            
+            MIN_COVERAGE_REQUIRED="${{ inputs.min_coverage }}"
+            ANY_BELOW=false
+            
+            while IFS=$'\t' read -r filepath pct; do
+              relpath=$(echo "$filepath" | sed "s|.*/${{ inputs.working_directory }}/src/||")
+              pct_int=${pct%.*}
+              
+              if [ -z "$pct_int" ] || ! [[ "$pct_int" =~ ^[0-9]+$ ]]; then
+                continue
+              fi
+            
+              if [ "$pct_int" -lt "$MIN_COVERAGE_REQUIRED" ]; then
+                ANY_BELOW=true
+                printf "%-45s | %-10s | ❌ below %d%%\n" "$relpath" "${pct}%" "$MIN_COVERAGE_REQUIRED"
+              else
+                printf "%-45s | %-10s | ✅\n" "$relpath" "${pct}%"
+              fi
+            done < <(jq -r 'to_entries[] | select(.key != "total") | "\(.key)\t\(.value.lines.pct)"' "$SUMMARY_FILE")
+            
+            printf '%0.s-' {1..70}; echo ""
+            printf "%-45s | %s%%\n" "OVERALL" "${OVERALL_LINE_PCT}"
+            echo ""
+            
+            if [ -z "$OVERALL_LINE_INT" ]; then
+              echo "⚠️  Warning: Could not parse overall coverage. Skipping threshold check."
+              exit 0
+            fi
+            
+            if [ "$OVERALL_LINE_INT" -lt "$MIN_COVERAGE_REQUIRED" ]; then
+              echo "❌ Coverage check failed!"
+              echo "Current line coverage (${OVERALL_LINE_PCT}%) is below the minimum threshold of ${MIN_COVERAGE_REQUIRED}%."
+              exit 1
+            else
+              echo "✅ Success! Line coverage is at ${OVERALL_LINE_PCT}% (minimum required is ${MIN_COVERAGE_REQUIRED}%)."
+            fi
+          else
+            echo "No test script found in package.json. Skipping."
+          fi
+  notify:
+    if: always() && inputs.send_notifications == true # Ensures this job runs regardless of the completion status of dependent jobs, but only if notifications are enabled
+    needs:
+      - ci
+    uses: ./.github/workflows/notification.yml
+    secrets: inherit
+    with:
+      job_status: ${{ needs.ci.result }}
+      workflow: ${{ github.workflow }}
+      runs_on: ${{inputs.runs_on}}
+      trigger_actor: ${{ github.actor }}
+      pr_title: ${{ github.event.pull_request.title }}
