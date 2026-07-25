@@ -222,7 +222,7 @@ jobs:
           if [ ! -f "scripts/splinter.sql" ]; then
             echo "scripts/splinter.sql not found, writing default linter query..."
             mkdir -p scripts
-            cat > scripts/splinter.sql << 'SPLINTER_SQL_EOF'
+            cat > scripts/splinter.sql << 'SPLINTER_SQL_EOF_0'
           set local search_path = '';
 
           (
@@ -619,6 +619,8 @@ jobs:
                   on p.polroles @> array[r.oid]
                   or p.polroles = array[0::oid]
               left join pg_catalog.pg_depend dep
+          SPLINTER_SQL_EOF_0
+            cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_1'
                   on c.oid = dep.objid
                   and dep.deptype = 'e',
               lateral (
@@ -1012,6 +1014,8 @@ jobs:
                   'schema', schema_name,
                   'name', table_name,
                   'type', 'table'
+          SPLINTER_SQL_EOF_1
+            cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_2'
               ) as metadata,
               format('rls_references_user_metadata_%s_%s_%s', schema_name, table_name, policy_name) as cache_key
           from
@@ -1431,6 +1435,8 @@ jobs:
                   c.relkind = 'r' -- regular tables
                   and (
                       pg_catalog.has_table_privilege('anon', c.oid, 'SELECT')
+          SPLINTER_SQL_EOF_2
+            cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_3'
                       or pg_catalog.has_table_privilege('authenticated', c.oid, 'SELECT')
                   )
                   and n.nspname = any(array(select trim(unnest(string_to_array(current_setting('pgrst.db_schemas', 't'), ',')))))
@@ -1790,6 +1796,8 @@ jobs:
               'Detects tables, views, materialized views, and foreign tables that are visible in the GraphQL schema to anyone using your public anon key. Revoke `SELECT` from `anon` for objects that should not be discoverable before sign-in, and check lint 0027 for the matching signed-in-user exposure.' as description,
               format(
                   '%s `%s.%s` is visible in the GraphQL schema because the `anon` role can `SELECT` it. Revoke `SELECT` from `anon` if it should not be discoverable without signing in.',
+          SPLINTER_SQL_EOF_3
+            cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_4'
                   object_type,
                   schema_name,
                   object_name
@@ -2052,7 +2060,7 @@ jobs:
               schema_name,
               function_name,
               function_args)
-          SPLINTER_SQL_EOF
+          SPLINTER_SQL_EOF_4
           fi
 
           # 2. Extract and run linter query against the container
