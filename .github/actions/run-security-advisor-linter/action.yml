@@ -270,20 +270,23 @@ runs:
           echo ") t;"
         } > /tmp/full_query.sql
 
-        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A < /tmp/full_query.sql 2>/dev/null)
+        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1)
+        PSQL_EXIT=$?
 
-        if [ $? -ne 0 ] || [ -z "$RAW_OUTPUT" ]; then
+        if [ $PSQL_EXIT -ne 0 ] || [ -z "$RAW_OUTPUT" ]; then
           echo "Error: Failed to execute database linter query against container!"
+          echo "Raw output: $RAW_OUTPUT"
           exit 1
         fi
 
         # Parse and filter generated local lints
         CLEAN_JSON=$(echo "$RAW_OUTPUT" | grep -v -E "^SET|^$" || true)
-        LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>/dev/null)
+        LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>&1)
 
-        if [ -z "$LOCAL_LINTS" ] || [ "$LOCAL_LINTS" = "null" ]; then
+        if [ -z "$LOCAL_LINTS" ] || echo "$LOCAL_LINTS" | grep -q "^jq:"; then
           echo "Error: Failed to parse or execute query JSON output!"
           echo "Raw stdout: $RAW_OUTPUT"
+          echo "jq error: $LOCAL_LINTS"
           exit 1
         fi
 
