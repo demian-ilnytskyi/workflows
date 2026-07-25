@@ -217,7 +217,7 @@ jobs:
   flutter:
     needs: [changes, semantic-pull-request, spell-check]
     if: needs.changes.outputs.flutter == 'true' && inputs.flutter_ci == true
-    uses: ./.github/workflows/flutter_package.yml
+    uses: ./.github/workflows/firebase_ci.yml
     with:
       analyze_directories: ${{ inputs.analyze_directories }}
       concurrency: ${{ inputs.concurrency }}
