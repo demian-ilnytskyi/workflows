@@ -18,7 +18,7 @@ runs:
       run: |
         if jq -e '.scripts.test' package.json >/dev/null 2>&1; then
           echo "Running npm test with coverage on path ${{ inputs.test_path }}..."
-          if ! npx vitest run ${{ inputs.test_path }} --coverage --coverage.reporter=json-summary --coverage.reporter=text; then
+          if ! npx vitest run ${{ inputs.test_path }} --coverage --coverage.reporter=json-summary --coverage.reporter=text --coverage.reporter=lcov; then
             echo "❌ Tests failed!"
             exit 1
           fi
