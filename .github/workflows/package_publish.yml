@@ -24,6 +24,7 @@ env:
   GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish:
@@ -52,7 +53,8 @@ jobs:
       - name: 🏗️ Build
         run: npm run build
 
-      - name: 🚀 Publish to npm
-        run: npm publish --access ${{ inputs.access }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: 🔎 npm version
+        run: npm --version
+
+      - name: 🚀 Publish to npm (OIDC trusted publisher)
+        run: npm publish --access ${{ inputs.access }} --provenance
