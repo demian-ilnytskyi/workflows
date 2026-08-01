@@ -45,7 +45,7 @@ runs:
         # Run tsc without emitting files
         # Using github.workspace to support paths relative to the repo root
         # Added || true to prevent script from crashing before summary if errors exist
-        TS_RAW_OUTPUT=$(npx tsc --noEmit --pretty false -p ${{ github.workspace }}/${{ inputs.tsconfig_path }} 2>&1 || true)
+        TS_RAW_OUTPUT=$(npx tsc --noEmit --pretty false -p ${{ github.workspace }}/${{ inputs.working_directory }}/${{ inputs.tsconfig_path }} 2>&1 || true)
 
         # Filter out any errors/warnings containing the ignore patterns
         TS_OUTPUT_FILTERED=$(echo "$TS_RAW_OUTPUT" | grep -v -E "${{ inputs.ignore_patterns }}" || true)
@@ -90,7 +90,7 @@ runs:
 
         # Using github.workspace to support paths relative to the repo root
         # Added || true to prevent script from crashing before summary if errors exist
-        ESLINT_OUTPUT=$(npx eslint ${{ github.workspace }}/${{ inputs.eslint_dir }} --format=stylish 2>&1 || true)
+        ESLINT_OUTPUT=$(npx eslint ${{ github.workspace }}/${{ inputs.working_directory }}/${{ inputs.eslint_dir }} --format=stylish 2>&1 || true)
 
         # Filter out the ignore patterns
         ESLINT_OUTPUT_FILTERED=$(echo "$ESLINT_OUTPUT" | grep -v -E "${{ inputs.ignore_patterns }}" || true)
