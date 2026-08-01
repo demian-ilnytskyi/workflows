@@ -82,8 +82,7 @@ on:
 env:
   GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
 permissions:
-  id-token: write # This is required for requesting the JWT
-  contents: write # This is required for actions/checkout 
+  contents: read
 
 jobs:
   define-flutter-versions:
