@@ -59,6 +59,26 @@ on:
         required: false
         type: string
         default: ""
+      project_type:
+        required: false
+        type: string
+        default: "flutter"
+      test_path:
+        required: false
+        type: string
+        default: "src/__tests__"
+      tsconfig_path:
+        required: false
+        type: string
+        default: "tsconfig.json"
+      eslint_dir:
+        required: false
+        type: string
+        default: "src"
+      ignore_patterns:
+        required: false
+        type: string
+        default: "public/images"
 env:
   GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
 permissions:
@@ -67,6 +87,7 @@ permissions:
 
 jobs:
   define-flutter-versions:
+      if: ${{ inputs.project_type == 'flutter' }}
       runs-on: ${{inputs.runs_on}}
 
       outputs:
@@ -91,6 +112,7 @@ jobs:
             echo "flutter versions = $VERSIONS"
             echo "flutter-versions=$VERSIONS" >> "$GITHUB_OUTPUT"
   build:
+    if: ${{ inputs.project_type == 'flutter' }}
     runs-on: ${{inputs.runs_on}}
     needs: define-flutter-versions
     timeout-minutes: 30
@@ -153,13 +175,51 @@ jobs:
           path: ${{ inputs.working_directory }}/coverage/lcov.info
           exclude: ${{ inputs.coverage_excludes }}
           min_coverage: ${{ inputs.min_coverage }}
+
+  build-nextjs:
+    if: ${{ inputs.project_type == 'nextjs' }}
+    runs-on: ${{inputs.runs_on}}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{inputs.working_directory}}
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4.1.1
+
+      - name: 🎯 Setup Node.js
+        uses: actions/setup-node@main
+        with:
+          node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: 📦 Install Dependencies
+        run: npm install
+
+      - name: 🔍 Code Quality Check
+        uses: demian-ilnytskyi/workflows/.github/actions/nextjs-code-quality-check@main
+        with:
+          working_directory: ${{ inputs.working_directory }}
+          tsconfig_path: ${{ inputs.tsconfig_path }}
+          eslint_dir: ${{ inputs.eslint_dir }}
+          ignore_patterns: ${{ inputs.ignore_patterns }}
+
+      - name: 🧪 Run Tests
+        uses: demian-ilnytskyi/workflows/.github/actions/run-nextjs-tests-with-coverage@main
+        with:
+          working_directory: ${{ inputs.working_directory }}
+          test_path: ${{ inputs.test_path }}
+          min_coverage: ${{ inputs.min_coverage }}
+
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
       - build
+      - build-nextjs
     uses: ./.github/workflows/notification.yml
     secrets: inherit
     with:
-      job_status: ${{ needs.build.result }}
+      job_status: ${{ inputs.project_type == 'flutter' && needs.build.result || needs.build-nextjs.result }}
       workflow: ${{ github.workflow }}
       runs_on: ${{inputs.runs_on}}
