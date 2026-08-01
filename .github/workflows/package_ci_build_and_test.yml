@@ -79,6 +79,10 @@ on:
         required: false
         type: string
         default: "public/images"
+      run_bench:
+        required: false
+        type: boolean
+        default: false
 env:
   GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
 permissions:
@@ -211,11 +215,37 @@ jobs:
           test_path: ${{ inputs.test_path }}
           min_coverage: ${{ inputs.min_coverage }}
 
+  bench:
+    if: ${{ inputs.project_type == 'nextjs' && inputs.run_bench }}
+    runs-on: ${{inputs.runs_on}}
+    continue-on-error: true
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{inputs.working_directory}}
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4.1.1
+
+      - name: 🎯 Setup Node.js
+        uses: actions/setup-node@main
+        with:
+          node-version: ${{ vars.NODE_FRAMEWORK_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 📈 Run Benchmarks
+        run: npm run bench
+
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
       - build
       - build-nextjs
+      - bench
     uses: ./.github/workflows/notification.yml
     secrets: inherit
     with:
