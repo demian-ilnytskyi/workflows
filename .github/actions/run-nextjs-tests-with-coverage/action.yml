@@ -63,11 +63,17 @@ runs:
           echo ""
 
           if [ -z "$OVERALL_LINE_INT" ]; then
-            echo "⚠️  Warning: Could not parse overall coverage."
+            echo "❌ Could not parse overall coverage."
+            exit 1
           elif [ "$OVERALL_LINE_INT" -lt "$MIN_COVERAGE_REQUIRED" ]; then
-            echo "⚠️  Overall line coverage (${OVERALL_LINE_PCT}%) is below ${MIN_COVERAGE_REQUIRED}%, but per-file thresholds (enforced by vitest) already passed — not failing the build on the aggregate."
+            echo "❌ Overall line coverage (${OVERALL_LINE_PCT}%) is below the required ${MIN_COVERAGE_REQUIRED}%."
+            ANY_BELOW=true
           else
             echo "✅ Success! Line coverage is at ${OVERALL_LINE_PCT}% (minimum required is ${MIN_COVERAGE_REQUIRED}%)."
+          fi
+
+          if [ "$ANY_BELOW" = true ]; then
+            exit 1
           fi
         else
           echo "No test script found in package.json. Skipping."
