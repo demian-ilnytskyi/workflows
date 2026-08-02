@@ -10,6 +10,22 @@ inputs:
   min_coverage:
     required: false
     default: '50'
+  per_file_exceptions:
+    description: >
+      Newline-separated "relative/path.ts:min%" overrides for files that
+      can't meet min_coverage (e.g. confirmed-unreachable defensive code).
+      Mirrors vitest.config.ts's own per-file threshold exceptions so CI
+      and local coverage runs agree.
+    required: false
+    default: ''
+  min_overall_coverage:
+    description: >
+      Minimum aggregate line coverage %. Defaults to min_coverage. Set this
+      lower than min_coverage when per_file_exceptions lowers some files'
+      floors below min_coverage, since that necessarily lowers the maximum
+      achievable aggregate too.
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -42,6 +58,12 @@ runs:
           MIN_COVERAGE_REQUIRED="${{ inputs.min_coverage }}"
           ANY_BELOW=false
 
+          declare -A EXCEPTIONS
+          while IFS=':' read -r ex_path ex_pct; do
+            [ -z "$ex_path" ] && continue
+            EXCEPTIONS["$ex_path"]="$ex_pct"
+          done <<< "${{ inputs.per_file_exceptions }}"
+
           while IFS=$'\t' read -r filepath pct; do
             relpath=$(echo "$filepath" | sed "s|.*/${{ inputs.working_directory }}/src/||")
             pct_int=${pct%.*}
@@ -50,9 +72,15 @@ runs:
               continue
             fi
 
-            if [ "$pct_int" -lt "$MIN_COVERAGE_REQUIRED" ]; then
+            file_min="$MIN_COVERAGE_REQUIRED"
+            if [ -n "${EXCEPTIONS[$relpath]:-}" ]; then
+              file_min="${EXCEPTIONS[$relpath]}"
+            fi
+            file_min_int=${file_min%.*}
+
+            if [ "$pct_int" -lt "$file_min_int" ]; then
               ANY_BELOW=true
-              printf "%-45s | %-10s | ❌ below %d%%\n" "$relpath" "${pct}%" "$MIN_COVERAGE_REQUIRED"
+              printf "%-45s | %-10s | ❌ below %s%%\n" "$relpath" "${pct}%" "$file_min"
             else
               printf "%-45s | %-10s | ✅\n" "$relpath" "${pct}%"
             fi
@@ -62,14 +90,20 @@ runs:
           printf "%-45s | %s%%\n" "OVERALL" "${OVERALL_LINE_PCT}"
           echo ""
 
+          MIN_OVERALL_REQUIRED="${{ inputs.min_overall_coverage }}"
+          if [ -z "$MIN_OVERALL_REQUIRED" ]; then
+            MIN_OVERALL_REQUIRED="$MIN_COVERAGE_REQUIRED"
+          fi
+          MIN_OVERALL_REQUIRED_INT=${MIN_OVERALL_REQUIRED%.*}
+
           if [ -z "$OVERALL_LINE_INT" ]; then
             echo "❌ Could not parse overall coverage."
             exit 1
-          elif [ "$OVERALL_LINE_INT" -lt "$MIN_COVERAGE_REQUIRED" ]; then
-            echo "❌ Overall line coverage (${OVERALL_LINE_PCT}%) is below the required ${MIN_COVERAGE_REQUIRED}%."
+          elif [ "$OVERALL_LINE_INT" -lt "$MIN_OVERALL_REQUIRED_INT" ]; then
+            echo "❌ Overall line coverage (${OVERALL_LINE_PCT}%) is below the required ${MIN_OVERALL_REQUIRED}%."
             ANY_BELOW=true
           else
-            echo "✅ Success! Line coverage is at ${OVERALL_LINE_PCT}% (minimum required is ${MIN_COVERAGE_REQUIRED}%)."
+            echo "✅ Success! Line coverage is at ${OVERALL_LINE_PCT}% (minimum required is ${MIN_OVERALL_REQUIRED}%)."
           fi
 
           if [ "$ANY_BELOW" = true ]; then

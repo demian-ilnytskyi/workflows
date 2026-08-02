@@ -35,6 +35,13 @@ on:
         required: false
         type: number
         default: 100
+      min_overall_coverage:
+        required: false
+        type: number
+      per_file_exceptions:
+        required: false
+        type: string
+        default: ""
       runs_on:
         required: false
         type: string
@@ -214,6 +221,8 @@ jobs:
           working_directory: ${{ inputs.working_directory }}
           test_path: ${{ inputs.test_path }}
           min_coverage: ${{ inputs.min_coverage }}
+          min_overall_coverage: ${{ inputs.min_overall_coverage }}
+          per_file_exceptions: ${{ inputs.per_file_exceptions }}
 
   bench:
     if: ${{ inputs.project_type == 'nextjs' && inputs.run_bench }}
