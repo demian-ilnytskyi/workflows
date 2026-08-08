@@ -36,11 +36,6 @@ on:
         required: false
         type: boolean
         default: false
-      include_all:
-        description: 'Include all migrations (equivalent to --include-all for db push)'
-        required: false
-        type: boolean
-        default: false
       DATABASE_DIR:
         description: 'Path to database schema folder'
         required: false
@@ -61,6 +56,7 @@ jobs:
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_POOLER_REGION: ${{ secrets.SUPABASE_POOLER_REGION }}
       SUPABASE_DIR: ${{inputs.supabase_dir}}
     steps:
       - name: Checkout repository
@@ -85,37 +81,67 @@ jobs:
           fi
 
       - name: Generate Migrations from Data-Base
+        env:
+          DATABASE_DIR_IN: ${{ inputs.DATABASE_DIR }}
+          MIGRATIONS_DIR_IN: ${{ inputs.MIGRATIONS_DIR }}
         run: |
-          DATABASE_DIR="${{ inputs.DATABASE_DIR }}"
-          MIGRATIONS_DIR="${{ inputs.MIGRATIONS_DIR }}"
-          
+          DATABASE_DIR="$DATABASE_DIR_IN"
+          MIGRATIONS_DIR="$MIGRATIONS_DIR_IN"
+
           if [ ! -d "$DATABASE_DIR" ]; then
               echo "Database directory $DATABASE_DIR does not exist. Skipping."
               exit 0
           fi
-          
+
           mkdir -p "$MIGRATIONS_DIR"
-          
+          find "$MIGRATIONS_DIR" -maxdepth 1 -name '*.sql' -delete
+
           temp_list=$(mktemp)
-          
+
+          declare -A CATEGORY_PREFIX
+          order_file="$DATABASE_DIR/order.txt"
+          prefix_counter=10
+          if [ -f "$order_file" ]; then
+              while IFS= read -r line || [ -n "$line" ]; do
+                  line=$(echo "$line" | tr -d '\r' | xargs)
+                  if [ -n "$line" ] && [ "${line:0:1}" != "#" ]; then
+                      CATEGORY_PREFIX["$line"]=$prefix_counter
+                      prefix_counter=$((prefix_counter + 10))
+                  fi
+              done < "$order_file"
+          fi
+
+          declare -A FILE_ORDER
+
+          load_file_order() {
+              local dir="$1"
+              local file_order_file="$dir/order.txt"
+              local i=10
+              if [ -f "$file_order_file" ]; then
+                  while IFS= read -r line || [ -n "$line" ]; do
+                      line=$(echo "$line" | tr -d '\r' | xargs)
+                      if [ -n "$line" ] && [ "${line:0:1}" != "#" ]; then
+                          FILE_ORDER["$dir/$line"]=$i
+                          i=$((i + 10))
+                      fi
+                  done < "$file_order_file"
+              fi
+          }
+
           gather_files_recursive() {
               local target="$1"
-              
+
               if [ -f "$target" ]; then
                   if [[ "$target" == *.sql ]]; then
                       local basename_f
                       basename_f=$(basename "$target")
-                      
+                      echo "Scanning: $target"
+
                       local rel_path="${target#$DATABASE_DIR/}"
                       local category_name="${rel_path%%/*}"
-                      local prefix="50"
-                      case "$category_name" in
-                          types) prefix="10" ;;
-                          tables) prefix="20" ;;
-                          rpcs) prefix="30" ;;
-                          triggers) prefix="40" ;;
-                      esac
-                      
+                      local prefix="${CATEGORY_PREFIX[$category_name]:-99}"
+                      local file_order="${FILE_ORDER[$target]:-9999}"
+
                       local git_date=""
                       local file_ts
                       file_ts=$(grep -oE "^-- *[0-9]{14}" "$target" | head -n 1 | grep -oE "[0-9]{14}" || true)
@@ -124,15 +150,16 @@ jobs:
                       elif [[ "$basename_f" =~ ^[0-9]{14} ]]; then
                           git_date="${BASH_REMATCH[0]}"
                       else
-                          # Use git last-modified date/time in YYYYMMDDHHMMSS format
-                          git_date=$(git log -1 --format="%ad" --date=format:"%Y%m%d%H%M%S" -- "$target" 2>/dev/null)
-                          if [ -z "$git_date" ]; then
-                              git_date=$(date +"%Y%m%d%H%M%S")
-                          fi
+                          git_date="00000000000000"
                       fi
-                      echo "$git_date|$prefix|$category_name|$target|$basename_f" >> "$temp_list"
+                      echo "$git_date|$prefix|$file_order|$category_name|$target|$basename_f" >> "$temp_list"
                   fi
               elif [ -d "$target" ]; then
+                  if [ "$(basename "$target")" = "ci" ]; then
+                      echo "Skipping CI-only directory: $target"
+                      return
+                  fi
+                  load_file_order "$target"
                   local items
                   items=$(find "$target" -mindepth 1 -maxdepth 1 | sort)
                   for item in $items; do
@@ -140,36 +167,45 @@ jobs:
                   done
               fi
           }
-          
+
+          echo "Scanning $DATABASE_DIR for migration source files..."
           gather_files_recursive "$DATABASE_DIR"
-          
+          echo "Scan complete."
+
           sorted_list=$(mktemp)
-          sort -t'|' -k2,2n -k1,1 -k5,5 "$temp_list" > "$sorted_list"
+          sort -t'|' -k2,2n -k3,3n -k1,1 -k6,6 "$temp_list" > "$sorted_list"
 
           declare -A USED_TIMESTAMPS
+          base_time=$(date +"%Y%m%d%H%M%S")
 
-          while IFS='|' read -r mtime prefix ftype src_path basename_f; do
-              current_time="$mtime"
+          while IFS='|' read -r mtime prefix file_order ftype src_path basename_f; do
+              current_time="$base_time"
               while [[ -n "${USED_TIMESTAMPS[$current_time]:-}" ]]; do
                   suffix=$((10#${current_time:8} + 1))
                   current_time="${current_time:0:8}$(printf "%06d" "$suffix")"
               done
               USED_TIMESTAMPS[$current_time]=1
-              
+
               dest_path="$MIGRATIONS_DIR/${current_time}_${basename_f}"
               cp "$src_path" "$dest_path"
               echo "Generated migration: $(basename "$dest_path")"
           done < "$sorted_list"
-          
+
           rm -f "$temp_list" "$sorted_list"
 
+          echo "=== Final migrations directory contents (sorted) ==="
+          ls -1 "$MIGRATIONS_DIR" | sort
+          echo "=== End migrations directory listing ==="
+
       - name: Clean migrations
+        env:
+          SUPABASE_DIR_IN: ${{ inputs.supabase_dir }}
         run: |
-          SUPABASE_DIR="${{ inputs.supabase_dir }}"
+          SUPABASE_DIR="$SUPABASE_DIR_IN"
           MIGRATIONS_PATH="$SUPABASE_DIR/supabase/migrations/*.sql"
-          echo "🧹 Cleaning Supabase migrations in $SUPABASE_DIR..."
+          echo "Cleaning Supabase migrations in $SUPABASE_DIR..."
           if ls $MIGRATIONS_PATH >/dev/null 2>&1; then
-            echo "🧹 Emptying set up migrations matching *_set_up.sql..."
+            echo "Emptying set up migrations matching *_set_up.sql..."
             find "$SUPABASE_DIR/supabase/migrations" -name "*_set_up.sql" -exec sh -c 'for f; do : > "$f"; done' _ {} +
             # We use perl for faster multiline/multi-file processing without sed -i issues
             find "$SUPABASE_DIR/supabase/migrations" -name "*.sql" -exec perl -pi -e 's/.*objects_delete_delete_prefix.*\n?//g' {} +
@@ -179,78 +215,88 @@ jobs:
             find "$SUPABASE_DIR/supabase/migrations" -name "*.sql" -exec perl -pi -e 's/.*prefixes_delete_hierarchy.*\n?//g' {} +
             find "$SUPABASE_DIR/supabase/migrations" -name "*.sql" -exec perl -pi -e 's/.*hypopg.*\n?//g' {} +
             find "$SUPABASE_DIR/supabase/migrations" -name "*.sql" -exec perl -pi -e 's/.*index_advisor.*\n?//g' {} +
-            echo "✅ Migrations cleaned from system junk"
+            echo "Migrations cleaned from system junk"
           else
-            echo "⏭️ No migration files found to clean."
+            echo "No migration files found to clean."
           fi
+
+      - name: Install psql
+        if: github.event_name == 'push' || inputs.deploy_db == true
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
       - name: Deploy Database Migrations
         if: github.event_name == 'push' || inputs.deploy_db == true
+        env:
+          MIGRATIONS_DIR: ${{ inputs.MIGRATIONS_DIR }}
         run: |
-          echo "🔍 Running deployment diagnostics..."
-          echo "Project ID length: ${#SUPABASE_PROJECT_ID}"
-          echo "DB Password length: ${#SUPABASE_DB_PASSWORD}"
-          if [ ${#SUPABASE_DB_PASSWORD} -eq 0 ]; then
-              echo "❌ Error: SUPABASE_DB_PASSWORD secret is EMPTY or NOT set!"
-          fi
-          
-          supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD" || echo "Link warned..."
-          
-          if [ -n "$SUPABASE_DB_PASSWORD" ]; then
-              echo "🧹 Cleaning up invalid/old migration records from remote schema_migrations..."
-              supabase db query "DELETE FROM supabase_migrations.schema_migrations WHERE length(version) != 14;" --linked || echo "Remote cleanup warning..."
-          fi
-          # repair_supabase_migrations.sh content
-          YELLOW='\033[0;33m'
-          GREEN='\033[0;32m'
-          RED='\033[0;31m'
-          NC='\033[0m'
-          INCLUDE_ALL_FLAG=""
-          if [ "${{ inputs.include_all }}" = "true" ]; then
-              INCLUDE_ALL_FLAG="--include-all"
-          fi
-          echo -e "${YELLOW}🚀 Attempting to push migrations and repair history drifts...${NC}"
-          OUTPUT_FILE=$(mktemp)
-          set +e
-          if [ -n "$SUPABASE_DB_PASSWORD" ]; then
-              yes | supabase db push $INCLUDE_ALL_FLAG --password "$SUPABASE_DB_PASSWORD" 2>&1 | tee "$OUTPUT_FILE"
-          else
-              yes | supabase db push $INCLUDE_ALL_FLAG 2>&1 | tee "$OUTPUT_FILE"
-          fi
-          PUSH_STATUS=${PIPESTATUS[1]}
           set -e
-          if [ $PUSH_STATUS -eq 0 ]; then
-              echo -e "${GREEN}✅ Successfully pushed migrations without repairs.${NC}"
-              rm "$OUTPUT_FILE"
-          elif grep -q "Remote migration versions not found" "$OUTPUT_FILE"; then
-              echo ""
-              echo -e "${YELLOW}⚠️ Mismatch detected! Dynamically repairing missing remote migrations...${NC}"
-              MISSING_VERSIONS=$(grep -oE "reverted [0-9 ]+" "$OUTPUT_FILE" | head -n 1 | sed 's/reverted //')
-              if [ ! -z "$MISSING_VERSIONS" ]; then
-                  echo -e "🛠 Force repairing versions: $MISSING_VERSIONS to 'reverted'..."
-                  if [ -n "$SUPABASE_DB_PASSWORD" ]; then
-                      supabase migration repair --status reverted $MISSING_VERSIONS --password "$SUPABASE_DB_PASSWORD"
-                      echo -e "${YELLOW}🔄 Retrying db push...${NC}"
-                      yes | supabase db push $INCLUDE_ALL_FLAG --password "$SUPABASE_DB_PASSWORD"
-                  else
-                      supabase migration repair --status reverted $MISSING_VERSIONS
-                      echo -e "${YELLOW}🔄 Retrying db push...${NC}"
-                      yes | supabase db push $INCLUDE_ALL_FLAG
-                  fi
-                  echo -e "${GREEN}✅ Successfully repaired and pushed migrations!${NC}"
-                  rm "$OUTPUT_FILE"
-              else
-                  echo -e "${RED}❌ Mismatch detected, but could not extract version IDs.${NC}"
-                  rm "$OUTPUT_FILE"
+          check_required_var() {
+              local var_name="$1"
+              local var_value="$2"
+              if [ -z "$var_value" ]; then
+                  echo "Error: $var_name is EMPTY or NOT set!"
                   exit 1
               fi
-          else
-              echo -e "${RED}❌ Push failed for reasons other than a version mismatch.${NC}"
-              echo -e "${RED}--- Supabase db push output ---${NC}"
-              cat "$OUTPUT_FILE"
-              rm "$OUTPUT_FILE"
-              exit $PUSH_STATUS
+          }
+
+          check_required_var "SUPABASE_DB_PASSWORD" "$SUPABASE_DB_PASSWORD"
+          check_required_var "SUPABASE_PROJECT_ID" "$SUPABASE_PROJECT_ID"
+          check_required_var "SUPABASE_POOLER_REGION" "$SUPABASE_POOLER_REGION"
+
+          DB_URL="postgresql://postgres.${SUPABASE_PROJECT_ID}:${SUPABASE_DB_PASSWORD}@aws-0-${SUPABASE_POOLER_REGION}.pooler.supabase.com:5432/postgres"
+
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "
+            CREATE TABLE IF NOT EXISTS supabase_migrations.migrations_history (
+              content_hash text PRIMARY KEY,
+              name text NOT NULL,
+              created_at timestamptz NOT NULL DEFAULT now()
+            );
+            CREATE OR REPLACE FUNCTION supabase_migrations.missing_indexes(hashes text[])
+            RETURNS integer[] AS \$\$
+              SELECT coalesce(array_agg(idx), '{}')
+              FROM unnest(hashes) WITH ORDINALITY AS h(hash, idx)
+              WHERE NOT EXISTS (
+                SELECT 1 FROM supabase_migrations.migrations_history a WHERE a.content_hash = h.hash
+              );
+            \$\$ LANGUAGE sql STABLE;
+          "
+
+          YELLOW='\033[0;33m'
+          GREEN='\033[0;32m'
+          NC='\033[0m'
+
+          FILES=($(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | sort))
+          HASHES=()
+          for f in "${FILES[@]}"; do
+              HASHES+=("$(sha256sum "$f" | cut -d' ' -f1)")
+          done
+
+          if [ ${#HASHES[@]} -eq 0 ]; then
+              echo "No migration files found."
+              exit 0
           fi
+
+          HASHES_ARRAY_LITERAL=$(printf '"%s",' "${HASHES[@]}")
+          HASHES_ARRAY_LITERAL="{${HASHES_ARRAY_LITERAL%,}}"
+
+          MISSING_INDEXES=$(psql "$DB_URL" -Atq -c "SELECT array_to_string(supabase_migrations.missing_indexes('$HASHES_ARRAY_LITERAL'), ',');")
+
+          IFS=',' read -ra MISSING_IDX_ARR <<< "$MISSING_INDEXES"
+
+          for idx in "${MISSING_IDX_ARR[@]}"; do
+              [ -z "$idx" ] && continue
+              f="${FILES[$((idx - 1))]}"
+              hash="${HASHES[$((idx - 1))]}"
+              base=$(basename "$f")
+              name=$(echo "$base" | sed -E 's/^[0-9]{14,}_//')
+
+              echo -e "${YELLOW}Applying migration $name...${NC}"
+              psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$f"
+              psql "$DB_URL" -v ON_ERROR_STOP=1 -c "INSERT INTO supabase_migrations.migrations_history (content_hash, name) VALUES ('$hash', '$name');"
+              echo -e "${GREEN}Applied $name.${NC}"
+          done
+
+          echo -e "${GREEN}All migrations applied.${NC}"
 
       - name: Deploy all Edge Functions
         if: github.event_name == 'push' || inputs.deploy_functions == true
@@ -259,7 +305,7 @@ jobs:
           if [ "${{ inputs.no_verify_jwt }}" = "true" ]; then
               JWT_FLAG="--no-verify-jwt"
           fi
-          supabase functions deploy $JWT_FLAG --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy $JWT_FLAG --use-api --import-map "$SUPABASE_DIR/supabase/functions/deno.json" --project-ref "$SUPABASE_PROJECT_ID"
   notify:
     if: always() && inputs.send_notifications == true
     needs:
