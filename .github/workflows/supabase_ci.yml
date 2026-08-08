@@ -75,7 +75,7 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.111.0
       - name: Start Database
         uses: demian-ilnytskyi/workflows/.github/actions/start-database@main
         with:
