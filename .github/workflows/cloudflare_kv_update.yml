@@ -25,15 +25,25 @@ jobs:
   update-kv:
     runs-on: ${{inputs.runs_on}}
 
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@main
 
+      - name: Check required secrets
+        uses: demian-ilnytskyi/workflows/.github/actions/check-required-vars@main
+        with:
+          vars: |
+            CLOUDFLARE_ACCOUNT_ID
+            CLOUDFLARE_API_TOKEN
+
       - name: Update Cloudflare KV
         run: |
           set -e
-          curl --fail -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{inputs.kv_id}}/values/${{inputs.variable_name}}" \
-            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+          curl --fail -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${{inputs.kv_id}}/values/${{inputs.variable_name}}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: text/plain" \
             --data "${{inputs.variable_value}}"
   notify:

@@ -80,6 +80,23 @@ jobs:
             fi
           fi
 
+      - name: Check required secrets (database)
+        if: github.event_name == 'push' || inputs.deploy_db == true
+        uses: demian-ilnytskyi/workflows/.github/actions/check-required-vars@main
+        with:
+          vars: |
+            SUPABASE_PROJECT_ID
+            SUPABASE_DB_PASSWORD
+            SUPABASE_POOLER_REGION
+
+      - name: Check required secrets (functions)
+        if: github.event_name == 'push' || inputs.deploy_functions == true
+        uses: demian-ilnytskyi/workflows/.github/actions/check-required-vars@main
+        with:
+          vars: |
+            SUPABASE_PROJECT_ID
+            SUPABASE_ACCESS_TOKEN
+
       - name: Generate Migrations from Data-Base
         env:
           DATABASE_DIR_IN: ${{ inputs.DATABASE_DIR }}
@@ -230,19 +247,6 @@ jobs:
           MIGRATIONS_DIR: ${{ inputs.MIGRATIONS_DIR }}
         run: |
           set -e
-          check_required_var() {
-              local var_name="$1"
-              local var_value="$2"
-              if [ -z "$var_value" ]; then
-                  echo "Error: $var_name is EMPTY or NOT set!"
-                  exit 1
-              fi
-          }
-
-          check_required_var "SUPABASE_DB_PASSWORD" "$SUPABASE_DB_PASSWORD"
-          check_required_var "SUPABASE_PROJECT_ID" "$SUPABASE_PROJECT_ID"
-          check_required_var "SUPABASE_POOLER_REGION" "$SUPABASE_POOLER_REGION"
-
           DB_URL="postgresql://postgres.${SUPABASE_PROJECT_ID}:${SUPABASE_DB_PASSWORD}@aws-0-${SUPABASE_POOLER_REGION}.pooler.supabase.com:5432/postgres"
 
           psql "$DB_URL" -v ON_ERROR_STOP=1 -c "

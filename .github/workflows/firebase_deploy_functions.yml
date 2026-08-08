@@ -37,6 +37,15 @@ jobs:
     environment: ${{inputs.FLAVOUR}} 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Check required secrets
+      uses: demian-ilnytskyi/workflows/.github/actions/check-required-vars@main
+      with:
+        vars: |
+          FIREBASE_TOKEN
+      env:
+        FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
     - uses: actions/setup-node@v4
       with:
         node-version: 22

@@ -1,0 +1,27 @@
+name: Check Required Vars
+description: Fails the job early if any listed environment variable is unset or empty.
+inputs:
+  vars:
+    description: 'Newline-separated list of required environment variable names'
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        MISSING=()
+        while IFS= read -r name; do
+          name=$(echo "$name" | tr -d '\r' | xargs)
+          [ -z "$name" ] && continue
+          value="${!name:-}"
+          if [ -z "$value" ]; then
+            MISSING+=("$name")
+          fi
+        done <<< "${{ inputs.vars }}"
+
+        if [ ${#MISSING[@]} -gt 0 ]; then
+          for name in "${MISSING[@]}"; do
+            echo "Error: $name is EMPTY or NOT set!"
+          done
+          exit 1
+        fi

@@ -63,6 +63,13 @@ jobs:
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@main
+      - name: Check required secrets
+        uses: demian-ilnytskyi/workflows/.github/actions/check-required-vars@main
+        with:
+          vars: |
+            CODECOV_TOKEN
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       - name: 🎯 Setup Flutter (Version - ${{ vars.FLUTTER_FRAMEWORK_VERSION }})
         uses: subosito/flutter-action@main
         with:
