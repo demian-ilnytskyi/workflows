@@ -255,6 +255,21 @@ jobs:
               name text NOT NULL,
               created_at timestamptz NOT NULL DEFAULT now()
             );
+            ALTER TABLE supabase_migrations.migrations_history
+              ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+            CREATE OR REPLACE FUNCTION supabase_migrations.trigger_set_timestamp()
+            RETURNS TRIGGER AS \$\$
+            BEGIN
+              IF NEW.updated_at IS NOT DISTINCT FROM OLD.updated_at THEN
+                NEW.updated_at := CURRENT_TIMESTAMP;
+              END IF;
+              RETURN NEW;
+            END;
+            \$\$ LANGUAGE plpgsql;
+            DROP TRIGGER IF EXISTS set_timestamp ON supabase_migrations.migrations_history;
+            CREATE TRIGGER set_timestamp
+              BEFORE UPDATE ON supabase_migrations.migrations_history
+              FOR EACH ROW EXECUTE FUNCTION supabase_migrations.trigger_set_timestamp();
             CREATE OR REPLACE FUNCTION supabase_migrations.missing_indexes(hashes text[])
             RETURNS integer[] AS \$\$
               SELECT coalesce(array_agg(idx), '{}')
