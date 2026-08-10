@@ -251,8 +251,8 @@ jobs:
       working_directory: ${{ inputs.workflow_working_directory }}
       runs_on: ${{ inputs.runs_on }}
       send_notifications: false
-      tsconfig_path: ${{ inputs.workflow_working_directory == '.' && 'tsconfig.json' || format('{0}/tsconfig.json', inputs.workflow_working_directory) }}
-      eslint_dir: ${{ inputs.workflow_working_directory == '.' && 'src' || format('{0}/src', inputs.workflow_working_directory) }}
+      tsconfig_path: 'tsconfig.json'
+      eslint_dir: 'src'
       ignore_patterns: 'public/images'
       name: 'workflow'
       min_coverage: ${{ inputs.workflow_min_coverage }}
@@ -267,8 +267,8 @@ jobs:
       working_directory: ${{ inputs.cms_working_directory }}
       runs_on: ${{ inputs.runs_on }}
       send_notifications: false
-      tsconfig_path: ${{ inputs.cms_working_directory == '.' && 'tsconfig.json' || format('{0}/tsconfig.json', inputs.cms_working_directory) }}
-      eslint_dir: ${{ inputs.cms_working_directory == '.' && 'src' || format('{0}/src', inputs.cms_working_directory) }}
+      tsconfig_path: 'tsconfig.json'
+      eslint_dir: 'src'
       ignore_patterns: 'public/images'
       name: 'cms'
 
