@@ -150,6 +150,21 @@ on:
         required: false
         type: string
         default: 'cloudflare/cms'
+      cms_test:
+        description: 'Set to true to run CMS unit tests'
+        required: false
+        type: boolean
+        default: false
+      cms_test_path:
+        description: 'Path or file pattern to run CMS tests on'
+        required: false
+        type: string
+        default: 'src/__tests__'
+      cms_min_coverage:
+        description: 'Minimum required CMS coverage percentage'
+        required: false
+        type: number
+        default: 50
       workflow_working_directory:
         description: 'Working directory for the workflow project'
         required: false
@@ -271,6 +286,9 @@ jobs:
       eslint_dir: 'src'
       ignore_patterns: 'public/images'
       name: 'cms'
+      run_tests: ${{ inputs.cms_test }}
+      test_path: ${{ inputs.cms_test_path }}
+      min_coverage: ${{ inputs.cms_min_coverage }}
 
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
