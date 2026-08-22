@@ -6,10 +6,8 @@ runs:
     - name: Write Default Linter Query (part 1/5)
       shell: bash
       run: |
-        if [ ! -f "scripts/splinter.sql" ]; then
-          touch /tmp/.splinter_default_needed
-          mkdir -p scripts
-          cat > scripts/splinter.sql << 'SPLINTER_SQL_EOF_0'
+        mkdir -p scripts
+        cat > scripts/splinter.sql << 'SPLINTER_SQL_EOF_0'
         set local search_path = '';
 
         (
@@ -407,12 +405,10 @@ runs:
                 or p.polroles = array[0::oid]
             left join pg_catalog.pg_depend dep
         SPLINTER_SQL_EOF_0
-        fi
     - name: Write Default Linter Query (part 2/5)
       shell: bash
       run: |
-        if [ -f /tmp/.splinter_default_needed ]; then
-          cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_1'
+        cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_1'
                 on c.oid = dep.objid
                 and dep.deptype = 'e',
             lateral (
@@ -807,12 +803,10 @@ runs:
                 'name', table_name,
                 'type', 'table'
         SPLINTER_SQL_EOF_1
-        fi
     - name: Write Default Linter Query (part 3/5)
       shell: bash
       run: |
-        if [ -f /tmp/.splinter_default_needed ]; then
-          cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_2'
+        cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_2'
             ) as metadata,
             format('rls_references_user_metadata_%s_%s_%s', schema_name, table_name, policy_name) as cache_key
         from
@@ -1233,12 +1227,10 @@ runs:
                 and (
                     pg_catalog.has_table_privilege('anon', c.oid, 'SELECT')
         SPLINTER_SQL_EOF_2
-        fi
     - name: Write Default Linter Query (part 4/5)
       shell: bash
       run: |
-        if [ -f /tmp/.splinter_default_needed ]; then
-          cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_3'
+        cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_3'
                     or pg_catalog.has_table_privilege('authenticated', c.oid, 'SELECT')
                 )
                 and n.nspname = any(array(select trim(unnest(string_to_array(current_setting('pgrst.db_schemas', 't'), ',')))))
@@ -1599,12 +1591,10 @@ runs:
             format(
                 '%s `%s.%s` is visible in the GraphQL schema because the `anon` role can `SELECT` it. Revoke `SELECT` from `anon` if it should not be discoverable without signing in.',
         SPLINTER_SQL_EOF_3
-        fi
     - name: Write Default Linter Query (part 5/5)
       shell: bash
       run: |
-        if [ -f /tmp/.splinter_default_needed ]; then
-          cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_4'
+        cat >> scripts/splinter.sql << 'SPLINTER_SQL_EOF_4'
                 object_type,
                 schema_name,
                 object_name
@@ -1868,5 +1858,3 @@ runs:
             function_name,
             function_args)
         SPLINTER_SQL_EOF_4
-          rm -f /tmp/.splinter_default_needed
-        fi
