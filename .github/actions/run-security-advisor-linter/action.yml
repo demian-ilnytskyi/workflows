@@ -6,10 +6,10 @@ inputs:
     default: 'true'
   service_functions_file:
     required: false
-    default: 'supabase/migrations/service_functions.txt'
+    default: 'supabase/data-base/service_functions.txt'
   definer_functions_file:
     required: false
-    default: 'supabase/migrations/definer_functions.txt'
+    default: 'supabase/data-base/definer_functions.txt'
 runs:
   using: composite
   steps:
@@ -28,6 +28,13 @@ runs:
         INCLUDE_ANON="${{ inputs.include_anon }}"
         SERVICE_FUNCTIONS_LIST=""
         SERVICE_FUNCTIONS_FILE="${{ inputs.service_functions_file }}"
+        if [ ! -f "$SERVICE_FUNCTIONS_FILE" ]; then
+          if [ -f "supabase/data-base/service_functions.txt" ]; then
+            SERVICE_FUNCTIONS_FILE="supabase/data-base/service_functions.txt"
+          elif [ -f "supabase/migrations/service_functions.txt" ]; then
+            SERVICE_FUNCTIONS_FILE="supabase/migrations/service_functions.txt"
+          fi
+        fi
         if [ -f "$SERVICE_FUNCTIONS_FILE" ]; then
           SERVICE_FUNCTIONS_LIST=$(cat "$SERVICE_FUNCTIONS_FILE" | tr -d '\n' | sed 's/[[:space:]]*,[[:space:]]*/,/g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
         fi
@@ -35,6 +42,13 @@ runs:
         # Load allowed SECURITY DEFINER functions list
         DEFINER_FUNCTIONS_LIST=""
         DEFINER_FUNCTIONS_FILE="${{ inputs.definer_functions_file }}"
+        if [ ! -f "$DEFINER_FUNCTIONS_FILE" ]; then
+          if [ -f "supabase/data-base/definer_functions.txt" ]; then
+            DEFINER_FUNCTIONS_FILE="supabase/data-base/definer_functions.txt"
+          elif [ -f "supabase/migrations/definer_functions.txt" ]; then
+            DEFINER_FUNCTIONS_FILE="supabase/migrations/definer_functions.txt"
+          fi
+        fi
         if [ -f "$DEFINER_FUNCTIONS_FILE" ]; then
           DEFINER_FUNCTIONS_LIST=$(cat "$DEFINER_FUNCTIONS_FILE" | tr -d '\n' | sed 's/[[:space:]]*,[[:space:]]*/,/g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
         fi
