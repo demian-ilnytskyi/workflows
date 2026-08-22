@@ -22,7 +22,10 @@ runs:
         fi
 
         echo "=== Executing Supabase Database Linter ==="
-        QUERY_BODY=$(tail -n +3 scripts/splinter.sql)
+        QUERY_BODY=""
+        if [ -f scripts/splinter.sql ]; then
+          QUERY_BODY=$(grep -v -i "^set " scripts/splinter.sql | grep -v "^$" || true)
+        fi
 
         # Load service-only functions list (no anon grant required)
         INCLUDE_ANON="${{ inputs.include_anon }}"
@@ -55,7 +58,6 @@ runs:
 
         # Append security checks to the linter query body
         SECURITY_CHECKS_QUERY="
-        UNION ALL
         (
         WITH allowed_definer_functions AS (
             SELECT trim(unnest(string_to_array('$DEFINER_FUNCTIONS_LIST', ','))) AS fname
@@ -332,12 +334,17 @@ runs:
         "
 
         {
+          echo "BEGIN;"
           echo "SET pgrst.db_schemas = 'public';"
           echo "SET local search_path = '';"
           echo "SELECT coalesce(json_agg(t), '[]'::json) FROM ("
-          echo "$QUERY_BODY"
+          if [ -n "$QUERY_BODY" ]; then
+            echo "$QUERY_BODY"
+            echo "UNION ALL"
+          fi
           echo "$SECURITY_CHECKS_QUERY"
           echo ") t;"
+          echo "COMMIT;"
         } > /tmp/full_query.sql
 
         RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1) || true
