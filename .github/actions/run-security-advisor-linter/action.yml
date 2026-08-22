@@ -346,7 +346,7 @@ runs:
           echo "COMMIT;"
         } > /tmp/full_query.sql
 
-        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1) || true
+        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1 || true)
         PSQL_EXIT=$?
 
         if [ $PSQL_EXIT -ne 0 ] || [ -z "$RAW_OUTPUT" ]; then
