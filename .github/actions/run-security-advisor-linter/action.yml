@@ -98,7 +98,7 @@ runs:
                 ON p.prolang = l.oid
         WHERE
             p.prosecdef = true
-            AND n.nspname = ANY(ARRAY(SELECT trim(unnest(string_to_array(current_setting('pgrst.db_schemas', 't'), ',')))))
+            AND n.nspname = ANY(ARRAY(SELECT trim(unnest(string_to_array(coalesce(nullif(current_setting('pgrst.db_schemas', true), ''), 'public'), ',')))))
             AND n.nspname NOT IN (
                 '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_config', '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql', 'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga', 'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog', 'realtime', 'repack', 'storage', 'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
             )
@@ -139,7 +139,7 @@ runs:
         WHERE
             c.relkind = 'r'
             AND NOT c.relrowsecurity
-            AND n.nspname = ANY(ARRAY(SELECT trim(unnest(string_to_array(current_setting('pgrst.db_schemas', 't'), ',')))))
+            AND n.nspname = ANY(ARRAY(SELECT trim(unnest(string_to_array(coalesce(nullif(current_setting('pgrst.db_schemas', true), ''), 'public'), ',')))))
             AND n.nspname NOT IN (
                 '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_config', '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql', 'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga', 'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog', 'realtime', 'repack', 'storage', 'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
             )
@@ -335,7 +335,6 @@ runs:
 
         {
           echo "BEGIN;"
-          echo "SET pgrst.db_schemas = 'public';"
           echo "SET local search_path = '';"
           echo "SELECT coalesce(json_agg(t), '[]'::json) FROM ("
           if [ -n "$QUERY_BODY" ]; then
@@ -347,7 +346,7 @@ runs:
           echo "COMMIT;"
         } > /tmp/full_query.sql
 
-        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1) || true
+        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1) || true
         PSQL_EXIT=$?
 
         if [ $PSQL_EXIT -ne 0 ] || [ -z "$RAW_OUTPUT" ]; then
