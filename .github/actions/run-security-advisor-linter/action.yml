@@ -24,7 +24,7 @@ runs:
         echo "=== Executing Supabase Database Linter ==="
         QUERY_BODY=""
         if [ -f scripts/splinter.sql ]; then
-          QUERY_BODY=$(grep -v -i "^set " scripts/splinter.sql | grep -v "^$" || true)
+          QUERY_BODY=$(grep -v -i "^set " scripts/splinter.sql | sed 's/;[[:space:]]*$//' | grep -v "^$" || true)
         fi
 
         # Load service-only functions list (no anon grant required)
@@ -356,9 +356,8 @@ runs:
           exit 1
         fi
 
-        # Parse and filter generated local lints (JSON output starts at the first '[' line;
-        # preceding lines are psql SET/WARNING noise)
-        CLEAN_JSON=$(echo "$RAW_OUTPUT" | sed -n '/^\[/,$p')
+        # Parse and filter generated local lints (JSON output starts at the '[' line)
+        CLEAN_JSON=$(echo "$RAW_OUTPUT" | grep "^\[" | head -n 1)
         LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>&1) || true
 
         if [ -z "$LOCAL_LINTS" ] || echo "$LOCAL_LINTS" | grep -q "^jq:"; then
