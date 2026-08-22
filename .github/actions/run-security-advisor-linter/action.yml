@@ -24,7 +24,7 @@ runs:
         echo "=== Executing Supabase Database Linter ==="
         QUERY_BODY=""
         if [ -f scripts/splinter.sql ]; then
-          QUERY_BODY=$(grep -v -i "^set " scripts/splinter.sql | sed 's/;[[:space:]]*$//' | grep -v "^$" || true)
+          QUERY_BODY=$(awk '!/^[[:space:]]*[sS][eE][tT]/ && !/^[[:space:]]*$/ { sub(/;[[:space:]]*$/, ""); print }' scripts/splinter.sql)
         fi
 
         # Load service-only functions list (no anon grant required)
@@ -346,8 +346,10 @@ runs:
           echo "COMMIT;"
         } > /tmp/full_query.sql
 
-        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1 || true)
+        set +e
+        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A < /tmp/full_query.sql 2>&1)
         PSQL_EXIT=$?
+        set -e
 
         if [ $PSQL_EXIT -ne 0 ] || [ -z "$RAW_OUTPUT" ]; then
           echo "Error: Failed to execute database linter query against container!"
@@ -356,8 +358,8 @@ runs:
         fi
 
         # Parse and filter generated local lints (JSON output starts at the '[' line)
-        CLEAN_JSON=$(echo "$RAW_OUTPUT" | grep "^\[" | head -n 1)
-        LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>&1) || true
+        CLEAN_JSON=$(echo "$RAW_OUTPUT" | awk '/^\[/ { print; exit }')
+        LOCAL_LINTS=$(echo "$CLEAN_JSON" | jq '[.[] | select(.categories[]? == "SECURITY" and (.name | contains("graphql") | not))]' 2>/dev/null || echo "[]")
 
         if [ -z "$LOCAL_LINTS" ] || echo "$LOCAL_LINTS" | grep -q "^jq:"; then
           echo "❌ Error: Failed to parse database linter query output!"
