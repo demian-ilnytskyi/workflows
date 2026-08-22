@@ -89,7 +89,12 @@ on:
         description: 'Path to file listing service-role-only functions (no anon grant required)'
         required: false
         type: string
-        default: 'supabase/migrations/service_functions.txt'
+        default: 'supabase/data-base/service_functions.txt'
+      supabase_definer_functions_file:
+        description: 'Path to file listing functions allowed to use SECURITY DEFINER'
+        required: false
+        type: string
+        default: 'supabase/data-base/definer_functions.txt'
       supabase_include_anon:
         description: 'Require anon GRANT EXECUTE on public RPC functions by default'
         required: false
@@ -242,6 +247,7 @@ jobs:
       validate_functions: ${{ inputs.supabase_validate_functions }}
       min_coverage: ${{ inputs.supabase_min_coverage }}
       service_functions_file: ${{ inputs.supabase_service_functions_file }}
+      definer_functions_file: ${{ inputs.supabase_definer_functions_file }}
       include_anon: ${{ inputs.supabase_include_anon }}
       DATABASE_DIR: ${{ inputs.supabase_database_dir }}
       MIGRATIONS_DIR: ${{ inputs.supabase_migrations_dir }}
