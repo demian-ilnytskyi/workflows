@@ -23,6 +23,8 @@ runs:
               return 1
             }
 
+            docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -c "CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION IF NOT EXISTS plpgsql_check WITH SCHEMA extensions;" >/dev/null 2>&1 || true
+
             # Fetch user-defined public plpgsql functions (oid|name).
             # Extension functions (pgtap, plpgsql_check, etc.) are excluded via pg_depend so
             # they are never passed to plpgsql_profiler_function_statements_tb, which is

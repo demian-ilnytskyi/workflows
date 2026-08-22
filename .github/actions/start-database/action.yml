@@ -34,6 +34,16 @@ runs:
         HAS_MIGRATIONS=false
         if [ -d "$MIGRATIONS_DIR" ] && [ -n "$(find "$MIGRATIONS_DIR" -name "*.sql" 2>/dev/null)" ]; then
             HAS_MIGRATIONS=true
+        fi
+
+        HAS_DATABASE=false
+        if [ -d "$DATABASE_DIR" ] && [ -n "$(find "$DATABASE_DIR" -name "*.sql" 2>/dev/null)" ]; then
+            HAS_DATABASE=true
+        fi
+
+        HAS_SQL=false
+        if [ "$HAS_MIGRATIONS" = true ] || [ "$HAS_DATABASE" = true ]; then
+            HAS_SQL=true
             INSTALL_PACKAGES="$INSTALL_PACKAGES postgresql-15-plpgsql-check"
         fi
 
@@ -48,7 +58,7 @@ runs:
             docker exec "$CONTAINER_NAME" sh -c "apt-get update -qq && apt-get install -y -qq $INSTALL_PACKAGES > /dev/null 2>&1"
         fi
 
-        if [ "$HAS_MIGRATIONS" = true ]; then
+        if [ "$HAS_SQL" = true ]; then
             # Configure plpgsql_check in shared_preload_libraries so profiler hooks are active from server start
             echo "Configuring plpgsql_check shared_preload_libraries..."
             docker exec "$CONTAINER_NAME" psql -U postgres -c "ALTER SYSTEM SET shared_preload_libraries = 'plpgsql_check';" > /dev/null
@@ -62,6 +72,8 @@ runs:
                 if [ $i -eq $MAX_WAIT ]; then echo "Failed to restart database."; exit 1; fi
             done
             echo "Ready."
+
+            docker exec "$CONTAINER_NAME" psql -U postgres -d postgres -c "CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION IF NOT EXISTS plpgsql_check WITH SCHEMA extensions; ALTER DATABASE postgres SET plpgsql_check.profiler = on;" > /dev/null
         fi
 
         if [ "$HAS_TESTS" = true ]; then
