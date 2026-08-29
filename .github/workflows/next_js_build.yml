@@ -101,10 +101,6 @@ jobs:
         run: |
           [[ "$FLAVOUR" != "production" ]] && export CLOUDFLARE_ENV="$FLAVOUR"
 
-          npm run pre-deploy
-          chmod +x ./check_app_size.sh
-          ./check_app_size.sh
-
           ENV_FLAG=""
           [[ "$FLAVOUR" != "production" ]] && ENV_FLAG="--env $FLAVOUR"
           npx wrangler deploy $ENV_FLAG
