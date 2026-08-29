@@ -92,16 +92,22 @@ jobs:
         shell: bash
           
       - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
-          accountId: ${{secrets.CLOUDFLARE_ACCOUNT_ID}}
-          command: deploy
-          packageManager: npm
-          environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
-          preCommands: |
-            ${{ inputs.FLAVOUR != 'production' && format('export CLOUDFLARE_ENV={0}', inputs.FLAVOUR) || 'true' }}
-            npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          FLAVOUR: ${{ inputs.FLAVOUR }}
+          MAX_SIZE_MB: ${{ inputs.folder_max_mb_size }}
+        run: |
+          [[ "$FLAVOUR" != "production" ]] && export CLOUDFLARE_ENV="$FLAVOUR"
+
+          npm run pre-deploy
+          chmod +x ./check_app_size.sh
+          ./check_app_size.sh
+
+          ENV_FLAG=""
+          [[ "$FLAVOUR" != "production" ]] && ENV_FLAG="--env $FLAVOUR"
+          npx wrangler deploy $ENV_FLAG
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
