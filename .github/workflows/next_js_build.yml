@@ -99,7 +99,9 @@ jobs:
           command: deploy
           packageManager: npm
           environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
-          preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
+          preCommands: |
+            ${{ inputs.FLAVOUR != 'production' && format('export CLOUDFLARE_ENV={0}', inputs.FLAVOUR) || 'true' }}
+            npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
