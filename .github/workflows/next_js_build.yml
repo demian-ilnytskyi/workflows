@@ -166,7 +166,14 @@ jobs:
               # environment already resolved via CLOUDFLARE_ENV. Deploying the
               # root wrangler.toml instead re-bundles and breaks routing.
               if [[ -f dist/server/wrangler.json ]]; then
-                npx wrangler deploy -c dist/server/wrangler.json
+                unset CLOUDFLARE_ENV
+                DEPLOY_OUTPUT=$(npx wrangler deploy -c dist/server/wrangler.json 2>&1)
+                echo "$DEPLOY_OUTPUT"
+                VERSION_ID=$(echo "$DEPLOY_OUTPUT" | grep "Current Version ID:" | awk '{print $NF}')
+                if [[ -n "$VERSION_ID" ]]; then
+                  echo "Promoting Version $VERSION_ID to 100% traffic..."
+                  npx wrangler versions deploy "${VERSION_ID}@100%" -c dist/server/wrangler.json --yes || true
+                fi
               else
                 npx wrangler deploy $ENV_FLAG
               fi
