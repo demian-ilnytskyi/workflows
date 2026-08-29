@@ -99,11 +99,69 @@ jobs:
           FLAVOUR: ${{ inputs.FLAVOUR }}
           MAX_SIZE_MB: ${{ inputs.folder_max_mb_size }}
         run: |
-          [[ "$FLAVOUR" != "production" ]] && export CLOUDFLARE_ENV="$FLAVOUR"
+              WRANGLER_ENV="$FLAVOUR"
+              [[ -n "$SUB_FLAVOUR" ]] && WRANGLER_ENV="${SUB_FLAVOUR}-${FLAVOUR}"
+              [[ "$WRANGLER_ENV" != "production" ]] && export CLOUDFLARE_ENV="$WRANGLER_ENV"
 
-          ENV_FLAG=""
-          [[ "$FLAVOUR" != "production" ]] && ENV_FLAG="--env $FLAVOUR"
-          npx wrangler deploy $ENV_FLAG
+              npm run pre-deploy
+
+              echo "🔍 Running the 'check-size' script from package.json..."
+              OUTPUT=$(npm run check-size 2>&1)
+
+              echo "📄 Capturing output from 'check-size'..."
+              echo "$OUTPUT"
+
+              # Extract the gzipped size in KiB
+              GZIP_SIZE_KIB=$(echo "$OUTPUT" | grep "Total Upload:" | grep "gzip:" | awk '{print $7}')
+
+              # Ensure extraction was successful
+              if [[ -z "$GZIP_SIZE_KIB" ]]; then
+                echo "⚠️  Failed to extract gzipped size. Please check the script output format."
+                exit 1
+              fi
+
+              echo "📊 Gzipped size extracted: ${GZIP_SIZE_KIB} KiB"
+
+              # Convert KiB to MB (approximation)
+              GZIP_SIZE_MB=$(echo "scale=2; $GZIP_SIZE_KIB / 1024" | bc)
+              echo "📏 Converted gzipped size: ${GZIP_SIZE_MB} MB"
+
+              # Ensure MAX_SIZE_MB is set (default to 3MB)
+              MAX_SIZE_MB=${MAX_APP_SIZE_MB:-3}
+              echo "🔎 Max allowed gzipped size: ${MAX_SIZE_MB} MB"
+
+              # Compare gzipped size with max allowed size
+              if (( $(echo "$GZIP_SIZE_MB > $MAX_SIZE_MB" | bc -l) )); then
+                echo "🚨❌ Gzipped build size exceeds ${MAX_SIZE_MB}MB limit!"
+                echo "🛑 Deployment aborted to prevent oversized uploads."
+                exit 1
+              else
+                echo "✅ Gzipped build size is within the limit: ${GZIP_SIZE_MB}MB."
+                echo "🚀 Proceeding with deployment..."
+              fi
+
+              WRANGLER_ENV="$FLAVOUR"
+              [[ -n "$SUB_FLAVOUR" ]] && WRANGLER_ENV="${SUB_FLAVOUR}-${FLAVOUR}"
+              ENV_FLAG=""
+              [[ "$WRANGLER_ENV" != "production" ]] && ENV_FLAG="--env $WRANGLER_ENV"
+              # accountId param falls back to the pipeline variable when empty (mirrors GH `inputs.accountId || secrets.CLOUDFLARE_ACCOUNT_ID`)
+              export CLOUDFLARE_ACCOUNT_ID="${ACCOUNT_ID_PARAM:-$CLOUDFLARE_ACCOUNT_ID_FALLBACK}"
+              check_required_var() {
+                  local var_name="$1"
+                  local var_value="$2"
+                  if [ -z "$var_value" ]; then
+                      echo "Error: $var_name is EMPTY or NOT set! Add it to the pipeline variable group or pass accountId."
+                      exit 1
+                  fi
+                  case "$var_value" in
+                      '$('*')' )
+                          echo "Error: $var_name did not resolve (still literal '$var_value'). It is missing from the pipeline variable group linked to this job."
+                          exit 1
+                          ;;
+                  esac
+              }
+              check_required_var "CLOUDFLARE_ACCOUNT_ID" "$CLOUDFLARE_ACCOUNT_ID"
+              npx wrangler deploy $ENV_FLAG
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
