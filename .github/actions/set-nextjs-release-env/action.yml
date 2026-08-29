@@ -3,6 +3,9 @@ description: Maps a secrets_map of ENV_VAR:SECRET_NAME pairs to GitHub env vars 
 inputs:
   flavour:
     required: true
+  sub_flavour:
+    required: false
+    default: ''
   secrets_map:
     required: false
     default: ''
@@ -35,9 +38,20 @@ runs:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare_api_token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
       run: |
+        WRANGLER_ENV="${{ inputs.flavour }}"
+        if [[ -n "${{ inputs.sub_flavour }}" ]]; then
+          WRANGLER_ENV="${{ inputs.sub_flavour }}-${{ inputs.flavour }}"
+        fi
+
         echo "NEXT_PUBLIC_FLAVOUR=${{ inputs.flavour }}" >> $GITHUB_ENV
+        if [[ -n "${{ inputs.sub_flavour }}" ]]; then
+          echo "NEXT_PUBLIC_SUB_FLAVOUR=${{ inputs.sub_flavour }}" >> $GITHUB_ENV
+        fi
         if [[ "${{ inputs.flavour }}" != "production" ]]; then
           echo "NEXTJS_ENV=${{ inputs.flavour }}" >> $GITHUB_ENV
+        fi
+        if [[ "$WRANGLER_ENV" != "production" ]]; then
+          echo "CLOUDFLARE_ENV=$WRANGLER_ENV" >> $GITHUB_ENV
         fi
 
         mapfile -t EXCLUDE_LIST <<< "${{ inputs.set_as_env }}"
@@ -67,7 +81,9 @@ runs:
                 echo "⚙️  Added excluded var as env: $env_var"
               else
                 echo "✅ Added secret: $env_var"
-                if ! output=$(echo "$secret_value" | npx wrangler versions secret put "$env_var" ${{ inputs.flavour != 'production' && format('--env {0}', inputs.flavour) || '' }} 2>&1); then
+                ENV_FLAG=""
+                [[ "$WRANGLER_ENV" != "production" ]] && ENV_FLAG="--env $WRANGLER_ENV"
+                if ! output=$(echo "$secret_value" | npx wrangler versions secret put "$env_var" $ENV_FLAG 2>&1); then
                   if [[ "$output" == *"already in use"* ]]; then
                     echo "⚠️  Variable $env_var is already defined as a non-secret variable. Skipping secret creation."
                   else

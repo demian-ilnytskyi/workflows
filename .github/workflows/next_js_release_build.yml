@@ -9,6 +9,11 @@ on:
         required: true
         type: string
         default: "production"
+      sub_flavour:
+        description: 'Optional sub-flavour (e.g. contractor|homeowner) for shared-codebase multi-site repos'
+        required: false
+        type: string
+        default: ""
       runs_on:
         required: false
         type: string
@@ -81,10 +86,11 @@ jobs:
             ~/.npm
             ${{ inputs.working_directory }}/.next/cache
           # Generate a new cache whenever packages or source files change.
-          key: ${{ runner.os }}-nextjs-${{ hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}-${{ hashFiles(format('{0}/**/*.js', inputs.working_directory), format('{0}/**/*.jsx', inputs.working_directory), format('{0}/**/*.ts', inputs.working_directory), format('{0}/**/*.tsx', inputs.working_directory)) }}
+          key: ${{ runner.os }}-nextjs-${{ inputs.FLAVOUR }}-${{ inputs.sub_flavour }}-${{ hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}-${{ hashFiles(format('{0}/**/*.js', inputs.working_directory), format('{0}/**/*.jsx', inputs.working_directory), format('{0}/**/*.ts', inputs.working_directory), format('{0}/**/*.tsx', inputs.working_directory)) }}
           # If source files changed but packages didn't, rebuild from a prior cache.
           restore-keys: |
-            ${{ runner.os }}-nextjs-${{ hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}-
+            ${{ runner.os }}-nextjs-${{ inputs.FLAVOUR }}-${{ inputs.sub_flavour }}-${{ hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}-
+            ${{ runner.os }}-nextjs-${{ inputs.FLAVOUR }}-${{ inputs.sub_flavour }}-
 
       - name: 📦 Install Dependencies
         # npm ci instead of npm install to not overwrite package_lock.json
@@ -95,6 +101,7 @@ jobs:
         uses: demian-ilnytskyi/workflows/.github/actions/set-nextjs-release-env@main
         with:
           flavour: ${{ inputs.FLAVOUR }}
+          sub_flavour: ${{ inputs.sub_flavour }}
           secrets_map: ${{ inputs.secrets_map }}
           set_as_env: ${{ inputs.set_as_env }}
           secrets_json: ${{ toJSON(secrets) }}
@@ -110,7 +117,7 @@ jobs:
           workingDirectory: ${{ inputs.working_directory }}
           command: deploy
           packageManager: npm
-          environment: ${{ inputs.FLAVOUR != 'production' && inputs.FLAVOUR || '' }}
+          environment: ${{ (inputs.sub_flavour != '' && format('{0}-{1}', inputs.sub_flavour, inputs.FLAVOUR)) || (inputs.FLAVOUR != 'production' && inputs.FLAVOUR) || '' }}
           preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
   notify:
     if: always() && inputs.send_notifications == true # Ensures this job runs regardless of the completion status of dependent jobs
