@@ -161,7 +161,15 @@ jobs:
                   esac
               }
               check_required_var "CLOUDFLARE_ACCOUNT_ID" "$CLOUDFLARE_ACCOUNT_ID"
-              npx wrangler deploy $ENV_FLAG
+              # vinext pre-bundles the worker and emits its own deploy config
+              # (main=index.js, no_bundle=true, assets=../client) with the
+              # environment already resolved via CLOUDFLARE_ENV. Deploying the
+              # root wrangler.toml instead re-bundles and breaks routing.
+              if [[ -f dist/server/wrangler.json ]]; then
+                npx wrangler deploy -c dist/server/wrangler.json
+              else
+                npx wrangler deploy $ENV_FLAG
+              fi
   notify:
     if: always() # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
