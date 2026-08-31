@@ -25,6 +25,11 @@ on:
         required: false
         type: string
         default: ""
+      disable_prerender:
+        description: 'Set to true to skip vinext --prerender-all even when vinext is detected'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   id-token: write # This is required for requesting the JWT
@@ -98,12 +103,21 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           FLAVOUR: ${{ inputs.FLAVOUR }}
           MAX_SIZE_MB: ${{ inputs.folder_max_mb_size }}
+          DISABLE_PRERENDER: ${{ inputs.disable_prerender }}
         run: |
               WRANGLER_ENV="$FLAVOUR"
               [[ -n "$SUB_FLAVOUR" ]] && WRANGLER_ENV="${SUB_FLAVOUR}-${FLAVOUR}"
               [[ "$WRANGLER_ENV" != "production" ]] && export CLOUDFLARE_ENV="$WRANGLER_ENV"
 
-              npm run pre-deploy
+              # vinext supports full-app prerendering via --prerender-all; plain
+              # Next.js repos using this same shared workflow don't understand
+              # that flag, so only forward it when vinext is an actual dependency.
+              PRERENDER_FLAG=""
+              if [[ "$DISABLE_PRERENDER" != "true" ]] && grep -q '"vinext"' package.json; then
+                PRERENDER_FLAG="--prerender-all"
+              fi
+
+              npm run pre-deploy -- $PRERENDER_FLAG
 
               echo "🔍 Running the 'check-size' script from package.json..."
               OUTPUT=$(npm run check-size 2>&1)
