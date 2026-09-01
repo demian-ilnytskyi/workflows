@@ -117,7 +117,29 @@ jobs:
                 PRERENDER_FLAG="--prerender-all"
               fi
 
-              npm run pre-deploy -- $PRERENDER_FLAG
+              PRE_DEPLOY_OUTPUT=$(npm run pre-deploy -- $PRERENDER_FLAG 2>&1)
+              PRE_DEPLOY_STATUS=$?
+              echo "$PRE_DEPLOY_OUTPUT"
+
+              # vinext's build prints a "Route (app)" table listing every route
+              # as static (○) or dynamic (ƒ) — surface it in the job summary so
+              # it's visible without digging through the raw log. Plain Next.js
+              # builds don't print this table, so the extraction is just a
+              # harmless no-op there.
+              ROUTE_TABLE=$(echo "$PRE_DEPLOY_OUTPUT" | awk '/Route \(app\)/,/[ƒ○] Dynamic.*[ƒ○] Static/')
+              if [[ -n "$ROUTE_TABLE" ]]; then
+                {
+                  echo "### 🧭 Route rendering summary"
+                  echo '```'
+                  echo "$ROUTE_TABLE"
+                  echo '```'
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              if [[ "$PRE_DEPLOY_STATUS" != "0" ]]; then
+                echo "🚨 pre-deploy failed (exit $PRE_DEPLOY_STATUS)"
+                exit "$PRE_DEPLOY_STATUS"
+              fi
 
               echo "🔍 Running the 'check-size' script from package.json..."
               OUTPUT=$(npm run check-size 2>&1)
