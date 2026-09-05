@@ -194,6 +194,11 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm install
 
+      - name: 🔍 Code Quality Check
+        uses: demian-ilnytskyi/workflows/.github/actions/nextjs-code-quality-check@main
+        with:
+          working_directory: ${{ inputs.working_directory }}
+
       - name: 🧪 Run Tests
         uses: demian-ilnytskyi/workflows/.github/actions/run-nextjs-tests-with-coverage@main
         with:
