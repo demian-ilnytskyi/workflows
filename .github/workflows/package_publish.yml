@@ -47,11 +47,19 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
+      - name: 🔍 Code Quality Check
+        uses: demian-ilnytskyi/workflows/.github/actions/nextjs-code-quality-check@main
+        with:
+          working_directory: ${{ inputs.working_directory }}
+
       - name: 🧪 Run Tests
         run: npm test
 
       - name: 🏗️ Build
         run: npm run build
+
+      - name: 📏 Check package size
+        run: npm run check:size
 
       - name: ⬆️ Ensure npm supports OIDC trusted publishing (>=11.5.1)
         run: npm install -g npm@latest && npm --version
