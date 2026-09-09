@@ -66,6 +66,10 @@ on:
         required: false
         type: string
         default: "src/__tests__"
+      send_notifications:
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   define-flutter-versions:
@@ -218,7 +222,7 @@ jobs:
           verbose: true
 
   notify:
-    if: always() # Ensures this job runs regardless of the completion status of dependent jobs
+    if: always() && inputs.send_notifications # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
       - push_code_coverage
       - push_code_coverage_nextjs

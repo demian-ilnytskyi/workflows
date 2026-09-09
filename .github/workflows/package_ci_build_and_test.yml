@@ -90,6 +90,10 @@ on:
         required: false
         type: boolean
         default: false
+      send_notifications:
+        required: false
+        type: boolean
+        default: true
 env:
   GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
 permissions:
@@ -250,7 +254,7 @@ jobs:
         run: npm run bench
 
   notify:
-    if: always() # Ensures this job runs regardless of the completion status of dependent jobs
+    if: always() && inputs.send_notifications # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
       - build
       - build-nextjs

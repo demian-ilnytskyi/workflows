@@ -19,6 +19,10 @@ on:
         required: false
         type: string
         default: "public"
+      send_notifications:
+        required: false
+        type: boolean
+        default: true
 
 env:
   GITHUB_OUTPUT: ${{github.workspace}}/.github/workflows/output.txt
@@ -66,3 +70,14 @@ jobs:
 
       - name: 🚀 Publish to npm (OIDC trusted publisher)
         run: npm publish --access ${{ inputs.access }} --provenance
+
+  notify:
+    if: always() && inputs.send_notifications
+    needs:
+      - publish
+    uses: ./.github/workflows/notification.yml
+    secrets: inherit
+    with:
+      job_status: ${{ needs.publish.result }}
+      workflow: ${{ github.workflow }}
+      runs_on: ${{ inputs.runs_on }}
