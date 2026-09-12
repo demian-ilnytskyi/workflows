@@ -49,6 +49,11 @@ on:
         required: false
         type: string
         default: 'supabase/data-base/definer_functions.txt'
+      fk_cascade_skip_file:
+        description: 'Path to file listing tables to skip in the FK cascade check'
+        required: false
+        type: string
+        default: 'supabase/data-base/fk_cascade_skip.txt'
       include_anon:
         description: 'Require anon GRANT EXECUTE on public RPC functions by default (set false to require only authenticated + service_role)'
         required: false
@@ -104,6 +109,12 @@ jobs:
           include_anon: ${{ inputs.include_anon }}
           service_functions_file: ${{ inputs.service_functions_file }}
           definer_functions_file: ${{ inputs.definer_functions_file }}
+
+      - name: Check Foreign Key Cascade Rules
+        if: ${{ inputs.validate_sql }}
+        uses: demian-ilnytskyi/workflows/.github/actions/check-fk-cascade@main
+        with:
+          skip_file: ${{ inputs.fk_cascade_skip_file }}
 
       - name: Run Database Tests (pgTAP)
         uses: demian-ilnytskyi/workflows/.github/actions/run-pgtap-tests@main

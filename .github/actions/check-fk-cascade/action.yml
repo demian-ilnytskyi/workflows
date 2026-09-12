@@ -1,0 +1,61 @@
+name: Check Foreign Key Cascade Rules
+description: Fails CI if any public-schema foreign key is missing ON UPDATE CASCADE or ON DELETE CASCADE, unless its table is listed in the skip file.
+inputs:
+  skip_file:
+    description: 'Path to newline-separated list of table names to skip'
+    required: false
+    default: 'supabase/data-base/fk_cascade_skip.txt'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        SKIP_FILE="${{ inputs.skip_file }}"
+        SKIP_LIST=""
+        if [ -f "$SKIP_FILE" ]; then
+          SKIP_LIST=$(grep -v '^[[:space:]]*#' "$SKIP_FILE" | grep -v '^[[:space:]]*$' | sed "s/^[[:space:]]*//;s/[[:space:]]*$//" | sed "s/^/'/;s/$/'/" | paste -sd, -)
+        fi
+        if [ -z "$SKIP_LIST" ]; then
+          SKIP_LIST="''"
+        fi
+
+        QUERY="
+        SELECT
+          conrelid::regclass::text AS table_name,
+          conname,
+          confupdtype,
+          confdeltype
+        FROM pg_constraint
+        WHERE contype = 'f'
+          AND connamespace = 'public'::regnamespace
+          AND conrelid::regclass::text NOT IN ($SKIP_LIST)
+          AND (confupdtype <> 'c' OR confdeltype <> 'c')
+        ORDER BY table_name, conname;
+        "
+
+        echo "=== Checking foreign key cascade rules ==="
+        set +e
+        RESULT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A -F '|' -c "$QUERY" 2>&1)
+        PSQL_EXIT=$?
+        set -e
+
+        if [ $PSQL_EXIT -ne 0 ]; then
+          echo "Error: Failed to query pg_constraint!"
+          echo "$RESULT"
+          exit 1
+        fi
+
+        RESULT=$(echo "$RESULT" | sed '/^[[:space:]]*$/d')
+
+        if [ -n "$RESULT" ]; then
+          echo "❌ Foreign keys missing ON UPDATE CASCADE / ON DELETE CASCADE:"
+          echo ""
+          echo "$RESULT" | while IFS='|' read -r table_name conname confupdtype confdeltype; do
+            echo "  - $table_name.$conname (update=$confupdtype, delete=$confdeltype)"
+          done
+          echo ""
+          echo "Fix the constraint, or add the table name to $SKIP_FILE to intentionally skip it."
+          exit 1
+        else
+          echo "✅ Success! All public foreign keys cascade on update and delete."
+        fi
