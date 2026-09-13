@@ -65,7 +65,7 @@ runs:
           expect <<EOF
             set timeout 1800
             log_user 0
-            spawn firebase deploy --only functions --project $PROJECT_ID --force
+            spawn firebase deploy --only functions --project $PROJECT_ID --force --debug
             log_user 1
             expect {
               "How many days do you want to keep container images" {
@@ -83,7 +83,7 @@ runs:
           expect <<EOF
             set timeout 1800
             log_user 0
-            spawn firebase deploy --only functions --project $PROJECT_ID
+            spawn firebase deploy --only functions --project $PROJECT_ID --debug
             log_user 1
             expect {
               "Would you like to proceed with deletion?" {
