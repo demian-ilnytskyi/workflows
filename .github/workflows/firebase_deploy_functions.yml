@@ -31,15 +31,14 @@ on:
         default: false
       SECRETS_MAP:
         description: >-
-          JSON array of {envVar, secretValue} objects to set as Firebase
-          Functions secrets before deploy, e.g.
-          '[{"envVar":"SUPABASE_URL","secretValue":"..."}]'. The caller
-          resolves each secretValue from its own secrets context (see
-          demian-ilnytskyi/inflalite's deploy_firebase.yaml for an example) —
-          GitHub Actions has no way to look up a secret by a dynamic name.
+          Newline-separated ENV_VAR:SECRET_NAME pairs to set as Firebase
+          Functions secrets before deploy, e.g. "SUPABASE_URL: SUPABASE_URL"
+          — same convention as next_js_release_build.yml's secrets_map. Needs
+          `secrets: inherit` on the caller's job so this workflow's own
+          `toJSON(secrets)` can resolve the named values.
         required: false
         type: string
-        default: "[]"
+        default: ""
 
 jobs:
   deploy:
@@ -78,12 +77,13 @@ jobs:
         google_application_credentials_json: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
         firebase_project_id: ${{ vars.FIREBASE_PROJECT_ID }}
 
-    # No-op for callers that don't pass SECRETS_MAP (default "[]").
+    # No-op for callers that don't pass SECRETS_MAP.
     - name: Set Firebase secrets
-      if: ${{ inputs.SECRETS_MAP != '[]' && inputs.SECRETS_MAP != '' }}
+      if: ${{ inputs.SECRETS_MAP != '' }}
       uses: demian-ilnytskyi/workflows/.github/actions/set-firebase-secrets@main
       with:
         secrets_map: ${{ inputs.SECRETS_MAP }}
+        secrets_json: ${{ toJSON(secrets) }}
         firebase_project_id: ${{ vars.FIREBASE_PROJECT_ID }}
         firebase_functions_dir: ${{ inputs.FIREBASE_FUNCTIONS_DIR }}
 
