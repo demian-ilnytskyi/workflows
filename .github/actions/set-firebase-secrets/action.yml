@@ -1,0 +1,66 @@
+name: Set Firebase Secrets
+description: Sets multiple Firebase Functions secrets via `firebase functions:secrets:set`, from a JSON array of {envVar, secretValue} objects passed by the caller. Mirrors the codinghouse Azure Pipelines set-firebase-secrets template. Run write-google-credentials first so GOOGLE_APPLICATION_CREDENTIALS is set.
+inputs:
+  secrets_map:
+    description: >-
+      JSON array of {envVar, secretValue} objects, e.g.
+      [{"envVar":"SUPABASE_URL","secretValue":"..."}]. The caller resolves
+      secretValue from its own `secrets.*` context — this action never reads
+      secrets by name itself, since GitHub Actions has no dynamic secret lookup.
+    required: true
+  firebase_project_id:
+    description: 'Firebase project ID. Falls back to .firebaserc default when omitted.'
+    required: false
+    default: ''
+  firebase_functions_dir:
+    description: 'Directory containing the Firebase Functions source, relative to the repo root.'
+    required: false
+    default: 'functions'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SECRETS_MAP_JSON: ${{ inputs.secrets_map }}
+        FIREBASE_PROJECT_ID: ${{ inputs.firebase_project_id }}
+        FIREBASE_FUNCTIONS_DIR: ${{ inputs.firebase_functions_dir }}
+      run: |
+        set -euo pipefail
+
+        if [ -d "firebase/functions" ]; then
+          cd firebase/functions
+        elif [ -d "$FIREBASE_FUNCTIONS_DIR" ]; then
+          cd "$FIREBASE_FUNCTIONS_DIR"
+        fi
+
+        PROJECT_ID="${FIREBASE_PROJECT_ID}"
+        if [[ -z "$PROJECT_ID" ]]; then
+          RC_FILE=".firebaserc"
+          [[ ! -f "$RC_FILE" ]] && RC_FILE="../.firebaserc"
+          [[ -f "$RC_FILE" ]] && PROJECT_ID=$(grep '"default":' "$RC_FILE" | cut -d'"' -f4)
+        fi
+        if [[ -z "$PROJECT_ID" ]]; then
+          echo "❌ Project ID not found. Set firebase_project_id or configure .firebaserc" >&2
+          exit 1
+        fi
+
+        COUNT=$(node -e "console.log(JSON.parse(process.env.SECRETS_MAP_JSON).length)")
+        MISSING=0
+
+        for i in $(seq 0 $((COUNT - 1))); do
+          ENV_VAR=$(node -e "console.log(JSON.parse(process.env.SECRETS_MAP_JSON)[$i].envVar)")
+          SECRET_VALUE=$(node -e "console.log(JSON.parse(process.env.SECRETS_MAP_JSON)[$i].secretValue ?? '')")
+
+          if [[ -z "$SECRET_VALUE" ]]; then
+            echo "❌ Value for $ENV_VAR is empty. Check the repo/org secret is set and passed in secrets_map." >&2
+            MISSING=1
+            continue
+          fi
+
+          echo "Setting Firebase secret: $ENV_VAR (project=$PROJECT_ID)"
+          echo -n "$SECRET_VALUE" | firebase functions:secrets:set "$ENV_VAR" --project "$PROJECT_ID" --data-file - --force
+        done
+
+        if [[ "$MISSING" == "1" ]]; then
+          exit 1
+        fi

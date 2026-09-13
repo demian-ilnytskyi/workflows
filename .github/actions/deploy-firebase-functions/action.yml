@@ -2,9 +2,11 @@ name: Deploy Firebase Functions
 description: Compiles and deploys Firebase Functions, optionally force-deleting functions removed from source. Authenticates via Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS) — run the write-google-credentials action first.
 inputs:
   firebase_project_id:
+    description: 'Firebase project ID. Falls back to .firebaserc default when omitted.'
     required: false
     default: ''
   force_delete:
+    description: 'Force-delete functions removed from source instead of prompting to keep them.'
     required: false
     default: 'false'
 runs:

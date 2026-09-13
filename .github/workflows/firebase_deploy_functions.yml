@@ -29,6 +29,17 @@ on:
         required: false
         type: boolean
         default: false
+      SECRETS_MAP:
+        description: >-
+          JSON array of {envVar, secretValue} objects to set as Firebase
+          Functions secrets before deploy, e.g.
+          '[{"envVar":"SUPABASE_URL","secretValue":"..."}]'. The caller
+          resolves each secretValue from its own secrets context (see
+          demian-ilnytskyi/inflalite's deploy_firebase.yaml for an example) —
+          GitHub Actions has no way to look up a secret by a dynamic name.
+        required: false
+        type: string
+        default: "[]"
 
 jobs:
   deploy:
@@ -67,23 +78,12 @@ jobs:
         google_application_credentials_json: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
         firebase_project_id: ${{ vars.FIREBASE_PROJECT_ID }}
 
-    # No-op for callers that don't define these secrets — only runs when the
-    # repo actually has SUPABASE_URL / SUPABASE_SERVICE_KEY set.
-    - name: Set SUPABASE_URL Firebase secret
-      if: ${{ secrets.SUPABASE_URL != '' }}
-      uses: demian-ilnytskyi/workflows/.github/actions/set-firebase-secret@main
+    # No-op for callers that don't pass SECRETS_MAP (default "[]").
+    - name: Set Firebase secrets
+      if: ${{ inputs.SECRETS_MAP != '[]' && inputs.SECRETS_MAP != '' }}
+      uses: demian-ilnytskyi/workflows/.github/actions/set-firebase-secrets@main
       with:
-        name: SUPABASE_URL
-        value: ${{ secrets.SUPABASE_URL }}
-        firebase_project_id: ${{ vars.FIREBASE_PROJECT_ID }}
-        firebase_functions_dir: ${{ inputs.FIREBASE_FUNCTIONS_DIR }}
-
-    - name: Set SUPABASE_SERVICE_KEY Firebase secret
-      if: ${{ secrets.SUPABASE_SERVICE_KEY != '' }}
-      uses: demian-ilnytskyi/workflows/.github/actions/set-firebase-secret@main
-      with:
-        name: SUPABASE_SERVICE_KEY
-        value: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        secrets_map: ${{ inputs.SECRETS_MAP }}
         firebase_project_id: ${{ vars.FIREBASE_PROJECT_ID }}
         firebase_functions_dir: ${{ inputs.FIREBASE_FUNCTIONS_DIR }}
 
