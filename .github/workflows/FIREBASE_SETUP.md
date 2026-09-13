@@ -27,6 +27,14 @@ Service Accounts):
      Pub/Sub, Storage, etc. get enabled on-demand by `firebase deploy`).
      Without it, deploy fails partway through with "Permissions denied
      enabling <api>.googleapis.com."
+   - `Compute Viewer` (`roles/compute.viewer`) — `firebase deploy` looks up
+     the project's default compute service account via
+     `compute.projects.get` to grant it Eventarc/Run IAM bindings on a
+     first-ever functions deploy. Without this role (even with the Compute
+     Engine API enabled) that lookup 403s with "Required
+     'compute.projects.get' permission", which gets misreported as the
+     unrelated "We failed to modify the IAM policy for the project" error —
+     see the Compute Engine API note below for how to tell them apart.
 3. Keys tab → Add Key → JSON. Downloads a `.json` key file.
 4. **Billing must already be linked** to the project (Cloud Billing →
    linked account). `roles/serviceusage.serviceUsageAdmin` cannot enable
@@ -35,12 +43,18 @@ Service Accounts):
 5. **Enable the Compute Engine API** (`compute.googleapis.com`) once, even
    though nothing here runs a VM: `firebase deploy` looks up the project's
    default compute service account (`<project-number>-compute@developer.gserviceaccount.com`)
-   via the Compute Engine API to grant it the Eventarc/Run IAM bindings a
-   first-ever functions deploy needs. If that API is disabled, the lookup
-   403s and firebase-tools reports it as the unrelated-looking "We failed to
-   modify the IAM policy for the project" error — `firebase deploy --debug`
-   is the only way to see the real `Compute Engine API has not been used...`
-   cause underneath. Enable it once and re-run:
+   via the Compute Engine API (`compute.projects.get`) to grant it the
+   Eventarc/Run IAM bindings a first-ever functions deploy needs. This needs
+   **both** the API enabled and the `Compute Viewer` role from step 2 above —
+   `firebase deploy --debug` is the only way to see which one is missing,
+   since both failure modes get misreported as the unrelated "We failed to
+   modify the IAM policy for the project" error otherwise:
+   - API disabled → `Compute Engine API has not been used in project ... or
+     it is disabled`
+   - Role missing → `Required 'compute.projects.get' permission for
+     'projects/<project-number>'`
+
+   Enable the API once:
    ```
    gcloud services enable compute.googleapis.com --project <project-id>
    ```
