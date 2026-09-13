@@ -53,10 +53,8 @@ jobs:
       with:
         vars: |
           GOOGLE_APPLICATION_CREDENTIALS_JSON
-          FIREBASE_PROJECT_ID
       env:
         GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
-        FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
 
     - uses: actions/setup-node@v4
       with:
