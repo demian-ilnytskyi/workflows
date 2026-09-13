@@ -1,3 +1,5 @@
+# Setup (service account, required roles, one-time GCP config, GitHub
+# secrets/vars): see FIREBASE_SETUP.md
 name: Firebase Deploy Functions
 
 env:
