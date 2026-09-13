@@ -1,0 +1,54 @@
+name: Write Google Credentials
+description: Writes a GCP service-account (or authorized_user ADC) JSON key to a temp file and exposes GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_CLOUD_QUOTA_PROJECT for downstream steps.
+inputs:
+  google_application_credentials_json:
+    description: 'Full contents of the GCP credentials JSON (service_account or authorized_user).'
+    required: true
+  firebase_project_id:
+    description: 'Used as the quota project when the credential type is authorized_user (it has no project of its own to bill API usage against).'
+    required: false
+    default: ''
+outputs:
+  credentials_path:
+    description: 'Path to the written credentials file.'
+    value: ${{ steps.write.outputs.credentials_path }}
+  quota_project:
+    description: 'GOOGLE_CLOUD_QUOTA_PROJECT value (empty for service_account credentials).'
+    value: ${{ steps.write.outputs.quota_project }}
+runs:
+  using: composite
+  steps:
+    - id: write
+      shell: bash
+      env:
+        GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ inputs.google_application_credentials_json }}
+        FIREBASE_PROJECT_ID: ${{ inputs.firebase_project_id }}
+      run: |
+        set -euo pipefail
+        if [ -z "${GOOGLE_APPLICATION_CREDENTIALS_JSON:-}" ]; then
+          echo "Error: google_application_credentials_json is empty or not set. Add it as a repository/organization secret." >&2
+          exit 1
+        fi
+
+        CRED_PATH="${RUNNER_TEMP}/gcp-service-account.json"
+        echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > "$CRED_PATH"
+
+        # authorized_user ADC JSON (from `gcloud auth application-default login`,
+        # used when the org enforces iam.disableServiceAccountKeyCreation and no
+        # service-account key exists) has no billing/quota project of its own —
+        # set one explicitly so Google API calls don't fail with
+        # "quota project not set". service_account keys are unaffected.
+        CRED_TYPE=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$CRED_PATH','utf8')).type)") || {
+          echo "Error: google_application_credentials_json is not valid JSON — check the secret value." >&2
+          exit 1
+        }
+
+        QUOTA_PROJECT=""
+        if [ "$CRED_TYPE" = "authorized_user" ] && [ -n "${FIREBASE_PROJECT_ID:-}" ]; then
+          QUOTA_PROJECT="$FIREBASE_PROJECT_ID"
+        fi
+
+        echo "GOOGLE_APPLICATION_CREDENTIALS=$CRED_PATH" >> "$GITHUB_ENV"
+        echo "GOOGLE_CLOUD_QUOTA_PROJECT=$QUOTA_PROJECT" >> "$GITHUB_ENV"
+        echo "credentials_path=$CRED_PATH" >> "$GITHUB_OUTPUT"
+        echo "quota_project=$QUOTA_PROJECT" >> "$GITHUB_OUTPUT"

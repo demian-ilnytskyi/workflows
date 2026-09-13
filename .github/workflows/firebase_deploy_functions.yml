@@ -42,9 +42,11 @@ jobs:
       uses: demian-ilnytskyi/workflows/.github/actions/check-required-vars@main
       with:
         vars: |
-          FIREBASE_TOKEN
+          GOOGLE_APPLICATION_CREDENTIALS_JSON
+          FIREBASE_PROJECT_ID
       env:
-        FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+        FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
 
     - uses: actions/setup-node@v4
       with:
@@ -59,10 +61,35 @@ jobs:
         npm install -g firebase-tools
         npm ci
 
+    - name: Write Google credentials
+      uses: demian-ilnytskyi/workflows/.github/actions/write-google-credentials@main
+      with:
+        google_application_credentials_json: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+        firebase_project_id: ${{ vars.FIREBASE_PROJECT_ID }}
+
+    # No-op for callers that don't define these secrets — only runs when the
+    # repo actually has SUPABASE_URL / SUPABASE_SERVICE_KEY set.
+    - name: Set SUPABASE_URL Firebase secret
+      if: ${{ secrets.SUPABASE_URL != '' }}
+      uses: demian-ilnytskyi/workflows/.github/actions/set-firebase-secret@main
+      with:
+        name: SUPABASE_URL
+        value: ${{ secrets.SUPABASE_URL }}
+        firebase_project_id: ${{ vars.FIREBASE_PROJECT_ID }}
+        firebase_functions_dir: ${{ inputs.FIREBASE_FUNCTIONS_DIR }}
+
+    - name: Set SUPABASE_SERVICE_KEY Firebase secret
+      if: ${{ secrets.SUPABASE_SERVICE_KEY != '' }}
+      uses: demian-ilnytskyi/workflows/.github/actions/set-firebase-secret@main
+      with:
+        name: SUPABASE_SERVICE_KEY
+        value: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        firebase_project_id: ${{ vars.FIREBASE_PROJECT_ID }}
+        firebase_functions_dir: ${{ inputs.FIREBASE_FUNCTIONS_DIR }}
+
     - name: Deploy Functions
       uses: demian-ilnytskyi/workflows/.github/actions/deploy-firebase-functions@main
       with:
-        firebase_token: ${{ secrets.FIREBASE_TOKEN }}
         firebase_project_id: ${{ vars.FIREBASE_PROJECT_ID }}
         force_delete: ${{ inputs.FORCE_DELETE }}
   notify:

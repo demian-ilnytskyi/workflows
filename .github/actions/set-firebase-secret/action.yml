@@ -1,0 +1,55 @@
+name: Set Firebase Secret
+description: Sets (or updates) a single Firebase Functions secret via `firebase functions:secrets:set`. Run write-google-credentials first so GOOGLE_APPLICATION_CREDENTIALS is set — the firebase CLI authenticates with it, no --token needed.
+inputs:
+  name:
+    description: 'Firebase secret name (must match the name passed to defineSecret(...) in the functions source).'
+    required: true
+  value:
+    description: 'Secret value to set.'
+    required: true
+  firebase_project_id:
+    required: false
+    default: ''
+  firebase_functions_dir:
+    required: false
+    default: 'functions'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SECRET_NAME: ${{ inputs.name }}
+        SECRET_VALUE: ${{ inputs.value }}
+        FIREBASE_PROJECT_ID: ${{ inputs.firebase_project_id }}
+        FIREBASE_FUNCTIONS_DIR: ${{ inputs.firebase_functions_dir }}
+      run: |
+        set -euo pipefail
+
+        if [[ -z "${SECRET_VALUE:-}" ]]; then
+          echo "❌ Value for secret $SECRET_NAME is empty. Check the repo/org secret." >&2
+          exit 1
+        fi
+
+        if [ -d "firebase/functions" ]; then
+          cd firebase/functions
+        elif [ -d "$FIREBASE_FUNCTIONS_DIR" ]; then
+          cd "$FIREBASE_FUNCTIONS_DIR"
+        fi
+
+        PROJECT_ID="${FIREBASE_PROJECT_ID}"
+        if [[ -z "$PROJECT_ID" ]]; then
+          RC_FILE=".firebaserc"
+          [[ ! -f "$RC_FILE" ]] && RC_FILE="../.firebaserc"
+
+          if [[ -f "$RC_FILE" ]]; then
+            PROJECT_ID=$(grep '"default":' "$RC_FILE" | cut -d'"' -f4)
+          fi
+        fi
+
+        if [[ -z "$PROJECT_ID" ]]; then
+          echo "❌ Project ID not found. Set firebase_project_id or configure .firebaserc" >&2
+          exit 1
+        fi
+
+        echo "Setting Firebase secret: $SECRET_NAME (project=$PROJECT_ID)"
+        echo -n "$SECRET_VALUE" | firebase functions:secrets:set "$SECRET_NAME" --project "$PROJECT_ID" --data-file - --force
