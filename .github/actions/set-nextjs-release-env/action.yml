@@ -86,6 +86,18 @@ runs:
                 if ! output=$(echo "$secret_value" | npx wrangler versions secret put "$env_var" $ENV_FLAG 2>&1); then
                   if [[ "$output" == *"already in use"* ]]; then
                     echo "⚠️  Variable $env_var is already defined as a non-secret variable. Skipping secret creation."
+                  elif [[ "$output" == *"does not exist"* || "$output" == *"10007"* || "$output" == *"versions/latest"* ]]; then
+                    echo "⚠️  Worker or version not found for versions API. Falling back to wrangler secret put..."
+                    if ! fallback_output=$(echo "$secret_value" | npx wrangler secret put "$env_var" $ENV_FLAG 2>&1); then
+                      if [[ "$fallback_output" == *"already in use"* ]]; then
+                        echo "⚠️  Variable $env_var is already defined as a non-secret variable. Skipping secret creation."
+                      else
+                        echo "$fallback_output"
+                        exit 1
+                      fi
+                    else
+                      echo "$fallback_output"
+                    fi
                   else
                     echo "$output"
                     exit 1

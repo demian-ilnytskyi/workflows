@@ -96,6 +96,7 @@ runs:
         ESLINT_OUTPUT_FILTERED=$(echo "$ESLINT_OUTPUT" | grep -v -E "${{ inputs.ignore_patterns }}" || true)
 
         # Count ESLint errors/warnings/info
+        # Architecture decision: warnings intentionally fail the build too (grep -c "error" also matches "0 errors" in the summary line)
         ESLINT_ERROR_COUNT=$(echo "$ESLINT_OUTPUT_FILTERED" | grep -c "error" || true)
         ESLINT_WARNING_COUNT=$(echo "$ESLINT_OUTPUT_FILTERED" | grep -c "warning" || true)
         ESLINT_INFO_COUNT=$(echo "$ESLINT_OUTPUT_FILTERED" | grep -c "no-unused-vars" || true)
