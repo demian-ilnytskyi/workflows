@@ -36,21 +36,21 @@ runs:
 
         echo "=== Checking foreign key cascade rules ==="
 
-        cat << EOF > /tmp/fk_cascade_query.sql
-        SELECT
-          conrelid::regclass::text AS table_name,
-          conname,
-          confupdtype,
-          confdeltype
-        FROM pg_constraint
-        WHERE contype = 'f'
-          AND connamespace = 'public'::regnamespace
-          AND conrelid::regclass::text NOT IN ($SKIP_LIST)
-          AND ('public.' || substring(conrelid::regclass::text from '[^.]+$')) NOT IN ($SKIP_LIST)
-          AND substring(conrelid::regclass::text from '[^.]+$') NOT IN ($SKIP_LIST)
-          AND (confupdtype <> 'c' OR confdeltype <> 'c')
-        ORDER BY table_name, conname;
-EOF
+        {
+          echo "SELECT"
+          echo "  conrelid::regclass::text AS table_name,"
+          echo "  conname,"
+          echo "  confupdtype,"
+          echo "  confdeltype"
+          echo "FROM pg_constraint"
+          echo "WHERE contype = 'f'"
+          echo "  AND connamespace = 'public'::regnamespace"
+          echo "  AND conrelid::regclass::text NOT IN ($SKIP_LIST)"
+          echo "  AND ('public.' || substring(conrelid::regclass::text from '[^.]+$')) NOT IN ($SKIP_LIST)"
+          echo "  AND substring(conrelid::regclass::text from '[^.]+$') NOT IN ($SKIP_LIST)"
+          echo "  AND (confupdtype <> 'c' OR confdeltype <> 'c')"
+          echo "ORDER BY table_name, conname;"
+        } > /tmp/fk_cascade_query.sql
 
         set +e
         RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A -F '|' < /tmp/fk_cascade_query.sql 2>&1)
