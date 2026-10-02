@@ -19,15 +19,24 @@ runs:
           fi
         fi
 
-        SKIP_LIST=""
+        SKIP_LIST="''"
         if [ -f "$SKIP_FILE" ]; then
-          SKIP_LIST=$(grep -v '^[[:space:]]*#' "$SKIP_FILE" | grep -v '^[[:space:]]*$' | sed "s/^[[:space:]]*//;s/[[:space:]]*$//" | awk '{print $0; if ($0 !~ /^public\./) print "public." $0; else { sub(/^public\./, ""); print $0 } }' | sed "s/^/'/;s/$/'/" | paste -sd, -)
-        fi
-        if [ -z "$SKIP_LIST" ]; then
-          SKIP_LIST="''"
+          PARSED_ITEMS=$(grep -v '^[[:space:]]*#' "$SKIP_FILE" 2>/dev/null | grep -v '^[[:space:]]*$' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' || true)
+          if [ -n "$PARSED_ITEMS" ]; then
+            EXPANDED_LIST=""
+            while IFS= read -r tbl; do
+              [ -n "$tbl" ] || continue
+              clean_tbl="${tbl#public.}"
+              [ -n "$EXPANDED_LIST" ] && EXPANDED_LIST="$EXPANDED_LIST, "
+              EXPANDED_LIST="$EXPANDED_LIST'$tbl', 'public.$clean_tbl', '$clean_tbl'"
+            done <<< "$PARSED_ITEMS"
+            [ -n "$EXPANDED_LIST" ] && SKIP_LIST="$EXPANDED_LIST"
+          fi
         fi
 
-        QUERY="
+        echo "=== Checking foreign key cascade rules ==="
+
+        cat << EOF > /tmp/fk_cascade_query.sql
         SELECT
           conrelid::regclass::text AS table_name,
           conname,
@@ -41,26 +50,25 @@ runs:
           AND substring(conrelid::regclass::text from '[^.]+$') NOT IN ($SKIP_LIST)
           AND (confupdtype <> 'c' OR confdeltype <> 'c')
         ORDER BY table_name, conname;
-        "
+EOF
 
-        echo "=== Checking foreign key cascade rules ==="
         set +e
-        RESULT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 -t -A -F '|' -c "$QUERY" 2>/tmp/fk_cascade_err.log)
+        RAW_OUTPUT=$(docker exec -i "supabase-test-db" psql -U postgres -d postgres -t -A -F '|' < /tmp/fk_cascade_query.sql 2>&1)
         PSQL_EXIT=$?
         set -e
 
         if [ $PSQL_EXIT -ne 0 ]; then
-          echo "Error: Failed to query pg_constraint!"
-          cat /tmp/fk_cascade_err.log
+          echo "❌ Error: Failed to query pg_constraint!"
+          echo "$RAW_OUTPUT"
           exit 1
         fi
 
-        RESULT=$(echo "$RESULT" | sed '/^[[:space:]]*$/d')
+        ROWS=$(echo "$RAW_OUTPUT" | grep -v '^[[:space:]]*$' | grep -v '^NOTICE:' | grep -v '^SET' | grep -v '^WARNING:' || true)
 
-        if [ -n "$RESULT" ]; then
+        if [ -n "$ROWS" ]; then
           echo "❌ Foreign keys missing ON UPDATE CASCADE / ON DELETE CASCADE:"
           echo ""
-          echo "$RESULT" | while IFS='|' read -r table_name conname confupdtype confdeltype; do
+          echo "$ROWS" | while IFS='|' read -r table_name conname confupdtype confdeltype; do
             echo "  - $table_name.$conname (update=$confupdtype, delete=$confdeltype)"
           done
           echo ""
