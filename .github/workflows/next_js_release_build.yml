@@ -44,6 +44,11 @@ on:
         required: false
         type: boolean
         default: true
+      vinext_warm_cdn_target:
+        description: 'Production origin (e.g. https://example.com). When set, deploys via `@vinext/cloudflare deploy --experimental-warm-cdn-cache` instead of plain `wrangler deploy`'
+        required: false
+        type: string
+        default: ""
 
 permissions:
   id-token: write # This is required for requesting the JWT
@@ -110,6 +115,7 @@ jobs:
           working_directory: ${{ inputs.working_directory }}
 
       - name: Deploy
+        if: inputs.vinext_warm_cdn_target == ''
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{secrets.CLOUDFLARE_API_TOKEN}}
@@ -119,6 +125,19 @@ jobs:
           packageManager: npm
           environment: ${{ (inputs.sub_flavour != '' && format('{0}-{1}', inputs.sub_flavour, inputs.FLAVOUR)) || (inputs.FLAVOUR != 'production' && inputs.FLAVOUR) || '' }}
           preCommands: npm run pre-deploy && chmod +x ./check_app_size.sh && ./check_app_size.sh
+
+      - name: Deploy (vinext CDN warm)
+        if: inputs.vinext_warm_cdn_target != ''
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.accountId || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOY_ENV: ${{ (inputs.sub_flavour != '' && format('{0}-{1}', inputs.sub_flavour, inputs.FLAVOUR)) || (inputs.FLAVOUR != 'production' && inputs.FLAVOUR) || '' }}
+          WARM_TARGET: ${{ inputs.vinext_warm_cdn_target }}
+        run: |
+          npm run pre-deploy
+          chmod +x ./check_app_size.sh && ./check_app_size.sh
+          npx @vinext/cloudflare deploy --skip-build --experimental-warm-cdn-cache --warm-cdn-target "$WARM_TARGET" ${DEPLOY_ENV:+--env "$DEPLOY_ENV"}
   notify:
     if: always() && inputs.send_notifications == true # Ensures this job runs regardless of the completion status of dependent jobs
     needs:
