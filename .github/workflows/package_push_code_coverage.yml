@@ -70,6 +70,10 @@ on:
         required: false
         type: boolean
         default: true
+      codecov_flags:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   define-flutter-versions:
@@ -219,6 +223,7 @@ jobs:
           files: ${{inputs.working_directory}}/coverage/lcov.info
           fail_ci_if_error: true
           name: nextjs-coverage
+          flags: ${{ inputs.codecov_flags }}
           verbose: true
 
   notify:
