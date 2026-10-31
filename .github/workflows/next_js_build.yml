@@ -117,16 +117,29 @@ jobs:
                 IS_VINEXT=true
               fi
               PRERENDER_FLAG=""
-              [[ "$IS_VINEXT" == "true" ]] && PRERENDER_FLAG="--prerender-all"
+              if [[ "$IS_VINEXT" == "true" ]] && ! grep -q 'vite build' package.json; then
+                PRERENDER_FLAG="--prerender-all"
+              fi
 
-              # vinext's per-route static (○) / dynamic (ƒ) table is only
-              # printed on a plain build — --prerender-all replaces it with
-              # "Pre-rendering all routes..." and no per-route breakdown. Run
-              # one extra plain build (cheap: it's the same Vite pipeline
-              # minus the prerender crawl) purely to capture that table for
-              # the job summary before the real, --prerender-all build below.
+              set +e
+              if [[ -n "$PRERENDER_FLAG" ]]; then
+                ROUTE_SUMMARY_OUTPUT=$(npm run pre-deploy 2>&1)
+                PRE_DEPLOY_OUTPUT=$(npm run pre-deploy -- $PRERENDER_FLAG 2>&1)
+                PRE_DEPLOY_STATUS=$?
+              else
+                PRE_DEPLOY_OUTPUT=$(npm run pre-deploy 2>&1)
+                PRE_DEPLOY_STATUS=$?
+                ROUTE_SUMMARY_OUTPUT="$PRE_DEPLOY_OUTPUT"
+              fi
+              set -e
+              echo "$PRE_DEPLOY_OUTPUT"
+
+              if [[ "$PRE_DEPLOY_STATUS" != "0" ]]; then
+                echo "🚨 pre-deploy failed (exit $PRE_DEPLOY_STATUS)"
+                exit "$PRE_DEPLOY_STATUS"
+              fi
+
               if [[ "$IS_VINEXT" == "true" ]]; then
-                ROUTE_SUMMARY_OUTPUT=$(npm run pre-deploy 2>&1) || true
                 ROUTE_TABLE=$(echo "$ROUTE_SUMMARY_OUTPUT" | awk '/Route \(app\)/,/[ƒ○] Dynamic.*[ƒ○] Static/')
                 if [[ -n "$ROUTE_TABLE" ]]; then
                   {
@@ -141,20 +154,19 @@ jobs:
                 fi
               fi
 
-              PRE_DEPLOY_OUTPUT=$(npm run pre-deploy -- $PRERENDER_FLAG 2>&1)
-              PRE_DEPLOY_STATUS=$?
-              echo "$PRE_DEPLOY_OUTPUT"
-
-              if [[ "$PRE_DEPLOY_STATUS" != "0" ]]; then
-                echo "🚨 pre-deploy failed (exit $PRE_DEPLOY_STATUS)"
-                exit "$PRE_DEPLOY_STATUS"
-              fi
-
               echo "🔍 Running the 'check-size' script from package.json..."
+              set +e
               OUTPUT=$(npm run check-size 2>&1)
+              CHECK_SIZE_STATUS=$?
+              set -e
 
               echo "📄 Capturing output from 'check-size'..."
               echo "$OUTPUT"
+
+              if [[ "$CHECK_SIZE_STATUS" != "0" ]]; then
+                echo "🚨 check-size failed (exit $CHECK_SIZE_STATUS)"
+                exit "$CHECK_SIZE_STATUS"
+              fi
 
               # Extract the gzipped size in KiB
               GZIP_SIZE_KIB=$(echo "$OUTPUT" | grep "Total Upload:" | grep "gzip:" | awk '{print $7}')
