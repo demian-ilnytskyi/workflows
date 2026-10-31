@@ -212,8 +212,15 @@ jobs:
               # root wrangler.toml instead re-bundles and breaks routing.
               if [[ -f dist/server/wrangler.json ]]; then
                 unset CLOUDFLARE_ENV
+                set +e
                 DEPLOY_OUTPUT=$(npx wrangler deploy -c dist/server/wrangler.json 2>&1)
+                DEPLOY_EXIT_CODE=$?
+                set -e
                 echo "$DEPLOY_OUTPUT"
+                if [[ $DEPLOY_EXIT_CODE -ne 0 ]]; then
+                  echo "🚨 wrangler deploy failed with exit code $DEPLOY_EXIT_CODE"
+                  exit $DEPLOY_EXIT_CODE
+                fi
                 VERSION_ID=$(echo "$DEPLOY_OUTPUT" | grep "Current Version ID:" | awk '{print $NF}')
                 if [[ -n "$VERSION_ID" ]]; then
                   echo "Promoting Version $VERSION_ID to 100% traffic..."
